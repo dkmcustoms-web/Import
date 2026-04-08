@@ -128,20 +128,26 @@ Instructions:
    - existed = no exact match but alternative suggested
    - not_found = nothing found at all
 
-2. Short professional reply using this exact structure:
+2. Short professional reply using EXACTLY this structure:
 
 Dear Team Member,
 
 I checked your question and below I provide you with my findings.
 
-[For each code:]
-• Code proposed: [code]
-  [If exact match]: ✓ Confirmed. Duty rate: [rate]. Verify: https://ec.europa.eu/taxation_customs/dds2/taric/
-  [If alternative]: Code [code] does not exist. Most likely correct code: [suggestion] (duty: [rate]). Verify: https://ec.europa.eu/taxation_customs/dds2/taric/
-  [If not found]: Could not be confirmed. A DKM specialist will follow up.
+[For each code in the email, one bullet per code:]
+• [confirmed/suggested code]  —  [Confirmed / Suggested, code existed / Not found]  —  [short goods description, max 10 words]  —  Third country tariff: [duty rate]
+
+[Only if not found:] A DKM specialist will follow up for this item.
 
 Kind regards,
 DKM Customs — Commodity Validation Service
+
+Rules:
+- NO website links
+- Use the confirmed or suggested code as the code in the bullet, NOT the wrong proposed code
+- Description: brief goods description based on HS chapter knowledge (e.g. "Articles of plastics, nes")
+- If multiple codes in email, list each on a separate bullet
+- Keep it short and scannable, no extra explanation
 
 Return format:
 ANALYSIS: <max 2 sentences ending with RESOLUTION_TYPE: ...>
@@ -174,8 +180,25 @@ REPLY:
         code_found      = "ambiguous" if any_found else "false"
         resolution_type = "existed"   if any_found else "not_found"
 
+    # Bepaal de bevestigde code
+    primary_result = results.get(primary_code, {})
+    if primary_result.get("exact"):
+        confirmed_code = primary_code
+    elif primary_result.get("found"):
+        confirmed_code = primary_result.get("suggested", "")
+    else:
+        # Zoek of een andere code in de email wel exact gevonden werd
+        confirmed_code = ""
+        for code, r in results.items():
+            if r.get("exact"):
+                confirmed_code = code
+                break
+            elif r.get("found") and not confirmed_code:
+                confirmed_code = r.get("suggested", "")
+
     return {
         "commodity_code":  primary_code,
+        "confirmed_code":  confirmed_code,
         "code_found":      code_found,
         "ai_verdict":      analysis,
         "suggested_reply": reply_body,
