@@ -13,52 +13,15 @@ CLAUDE_MODEL = "claude-opus-4-5"
 
 
 def _load_commodities() -> pd.DataFrame:
-    """Load commodities CSV — leest ruwe lijnen en parseert manueel."""
+    """
+    Laad taric_clean.csv — UTF-8, puntkomma-separator.
+    Kolommen: gn_code | douanerecht | type_duty
+    """
     csv_path = os.environ.get("COMMODITIES_CSV_PATH", "commodities.csv")
-
-    # Lees het bestand ruwe lijnen per lijn — volledig tolerant
-    for enc in ["utf-8", "latin-1", "cp1252"]:
-        try:
-            with open(csv_path, "r", encoding=enc) as f:
-                lines = f.readlines()
-            break
-        except Exception:
-            continue
-    else:
-        raise RuntimeError(f"Kan commodities CSV niet openen: {csv_path}")
-
-    # Detecteer separator op basis van eerste lijn
-    header_line = lines[0].strip()
-    if ";" in header_line:
-        sep = ";"
-    elif "\t" in header_line:
-        sep = "\t"
-    else:
-        sep = ","
-
-    # Parse header
-    headers = [h.strip().lower().replace(" ", "_") for h in header_line.split(sep)]
-
-    # Parse data rijen — sla rijen over met verkeerd aantal kolommen
-    rows = []
-    for line in lines[1:]:
-        line = line.strip()
-        if not line:
-            continue
-        parts = line.split(sep)
-        if len(parts) == len(headers):
-            rows.append(parts)
-        elif len(parts) > len(headers):
-            # Te veel kolommen — neem enkel de eerste N
-            rows.append(parts[:len(headers)])
-        # Te weinig kolommen — opvullen met lege strings
-        elif len(parts) < len(headers):
-            parts += [""] * (len(headers) - len(parts))
-            rows.append(parts)
-
-    df = pd.DataFrame(rows, columns=headers)
-    df = df.apply(lambda col: col.str.strip() if col.dtype == "object" else col)
-    print(f"[Validator] CSV geladen: {len(df)} rijen, kolommen: {list(df.columns)}, sep='{sep}'")
+    df = pd.read_csv(csv_path, dtype=str, sep=";", encoding="utf-8")
+    df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
+    df = df.fillna("")
+    print(f"[Validator] CSV geladen: {len(df)} rijen, kolommen: {list(df.columns)}")
     return df
 
 
@@ -75,10 +38,10 @@ def _search_csv(code: str) -> dict:
     if not code_clean:
         return {"found": False, "exact": False, "candidates": [], "description": ""}
 
-    # Kolom met de GN code — "gn_code" is de vaste naam in DKM CSV
-    code_col = "gn_code" if "gn_code" in df.columns else df.columns[0]
-    desc_col = "omschrijving" if "omschrijving" in df.columns else None
+    # Kolommen van taric_clean.csv
+    code_col = "gn_code"
     duty_col = "douanerecht" if "douanerecht" in df.columns else None
+    desc_col = None  # geen omschrijving in TARIC CSV
 
     # Zoek: gn_code begint met de gezochte digits
     mask = (
