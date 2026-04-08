@@ -2,7 +2,8 @@
 gmail_reader.py
 Polls dkmcustoms@gmail.com via IMAP voor commodity code vragen.
 - Pikt emails op met label 'CommodityCheckAI' (ongelezen)
-- Verplaatst verwerkte emails naar sublabel 'CommodityCheckAI/Verwerkt'
+- Voegt sublabel 'CommodityCheckAI/Verwerkt' toe na verwerking
+- Markeert als gelezen — mail blijft gewoon staan in Gmail
 """
 
 import os
@@ -12,12 +13,11 @@ import re
 from datetime import datetime
 from email.header import decode_header
 
-IMAP_HOST = "imap.gmail.com"
-IMAP_PORT = 993
-
-GMAIL_LABEL           = "CommodityCheckAI"
-GMAIL_LABEL_VERWERKT  = "CommodityCheckAI/Verwerkt"
-SUBJECT_TAG           = "#commoditycheckAI"
+IMAP_HOST            = "imap.gmail.com"
+IMAP_PORT            = 993
+GMAIL_LABEL          = "CommodityCheckAI"
+GMAIL_LABEL_VERWERKT = "CommodityCheckAI/Verwerkt"
+SUBJECT_TAG          = "#commoditycheckAI"
 
 
 def _decode_str(value: str) -> str:
@@ -45,39 +45,31 @@ def _extract_body(msg) -> str:
     return body
 
 
-def _ensure_label(mail: imaplib.IMAP4_SSL, label: str) -> bool:
-    """Maak label aan als het nog niet bestaat. Returns True als OK."""
-    status, _ = mail.select(f'"{label}"')
-    if status == "OK":
-        return True
-    # Aanmaken
-    status, _ = mail.create(f'"{label}"')
-    return status == "OK"
-
-
 class GmailReader:
     def __init__(self):
         self.user     = os.environ.get("SMTP_USER", "dkmcustoms@gmail.com")
         self.password = os.environ.get("SMTP_PASSWORD", "")
 
+    def _get_or_create_label(self, mail: imaplib.IMAP4_SSL, label: str):
+        """Controleer of label bestaat, anders aanmaken."""
+        status, _ = mail.select(f'"{label}"')
+        if status != "OK":
+            mail.create(f'"{label}"')
+            print(f"[GmailReader] Label aangemaakt: {label}")
+
     def fetch_new_messages(self) -> list[dict]:
-        """
-        Haalt ongelezen emails op uit label 'CommodityCheckAI'.
-        Verplaatst ze naar 'CommodityCheckAI/Verwerkt' na inlezen.
-        """
         results = []
         try:
             mail = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT)
             mail.login(self.user, self.password)
 
-            # Zorg dat het sublabel bestaat
-            _ensure_label(mail, GMAIL_LABEL_VERWERKT)
+            # Zorg dat sublabel bestaat
+            self._get_or_create_label(mail, GMAIL_LABEL_VERWERKT)
 
-            # Selecteer het hoofdlabel
+            # Selecteer hoofdlabel
             status, _ = mail.select(f'"{GMAIL_LABEL}"')
             if status != "OK":
-                # Fallback: inbox, filter op subject
-                print(f"[GmailReader] Label niet gevonden, gebruik inbox")
+                print(f"[GmailReader] Label '{GMAIL_LABEL}' niet gevonden, fallback naar inbox")
                 mail.select("inbox")
                 status, data = mail.search(None, f'(UNSEEN SUBJECT "{SUBJECT_TAG}")')
             else:
@@ -96,23 +88,20 @@ class GmailReader:
                     if status != "OK":
                         continue
 
-                    raw     = msg_data[0][1]
-                    msg     = email.message_from_bytes(raw)
-                    subject = _decode_str(msg.get("Subject", "(no subject)"))
-                    from_h  = _decode_str(msg.get("From", ""))
-                    date_str= msg.get("Date", "")
-                    body    = _extract_body(msg)
+                    raw      = msg_data[0][1]
+                    msg      = email.message_from_bytes(raw)
+                    subject  = _decode_str(msg.get("Subject", "(geen subject)"))
+                    from_h   = _decode_str(msg.get("From", ""))
+                    date_str = msg.get("Date", "")
+                    body     = _extract_body(msg)
 
-                    # Dubbele check op subject tag
                     if SUBJECT_TAG.lower() not in subject.lower():
-                        print(f"[GmailReader] Overgeslagen: {subject}")
+                        print(f"[GmailReader] Overgeslagen (geen tag): {subject}")
                         continue
 
-                    # Email adres extraheren
                     match        = re.search(r"[\w.\-+]+@[\w.\-]+", from_h)
                     sender_email = match.group(0) if match else from_h
 
-                    # Datum parsen
                     try:
                         received_at = datetime.strptime(
                             date_str[:25].strip(), "%a, %d %b %Y %H:%M:%S"
@@ -128,12 +117,11 @@ class GmailReader:
                         "received_at":  received_at,
                     })
 
-                    # Verplaats naar sublabel 'CommodityCheckAI/Verwerkt'
+                    # ✅ Alleen markeren als gelezen + sublabel toevoegen
+                    # Mail blijft gewoon staan in Gmail — niets verwijderen
                     mail.store(num, "+FLAGS", "\\Seen")
                     mail.copy(num, f'"{GMAIL_LABEL_VERWERKT}"')
-                    mail.store(num, "+FLAGS", "\\Deleted")
-                    mail.expunge()
-                    print(f"[GmailReader] Verwerkt + verplaatst: {subject}")
+                    print(f"[GmailReader] Verwerkt: {subject} → label '{GMAIL_LABEL_VERWERKT}' toegevoegd")
 
                 except Exception as e:
                     print(f"[GmailReader] Fout bij bericht {num}: {e}")
