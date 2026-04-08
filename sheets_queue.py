@@ -62,7 +62,10 @@ class SheetsQueue:
     # ── Queue ────────────────────────────────────────────────────────────────
 
     def get_all_items(self) -> list[dict]:
-        return list(reversed(self.ws.get_all_records()))
+        records = self.ws.get_all_records()
+        # Filter header rij eruit als die per ongeluk als data wordt teruggegeven
+        valid = [r for r in records if str(r.get("row_id","")).strip().isdigit()]
+        return list(reversed(valid))
 
     def msg_id_exists(self, msg_id: str) -> bool:
         # Normaliseer: verwijder < > en strip whitespace voor vergelijking
