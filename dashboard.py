@@ -43,6 +43,7 @@ html,body,[class*="css"]{font-family:'DM Sans',sans-serif;}
 .res-existed{background:#0d1a2d;color:#3cceff;border:1px solid #3cceff33;}
 .res-manual{background:#2d2010;color:#f0a500;border:1px solid #f0a50033;}
 .res-notfound{background:#2d1010;color:#f35e40;border:1px solid #f35e4033;}
+.badge-ignored{background:#1a1a2e;color:#555;border:1px solid #55555533;}
 .poll-box{background:#16213e;border:1px solid #3cceff33;border-radius:10px;padding:1rem 1.4rem;margin-bottom:1.5rem;}
 @keyframes fadeSlide{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
 .queue-card{animation:fadeSlide 0.25s ease both;}
@@ -70,6 +71,7 @@ def load_items(): return queue.get_all_items()
 
 items_all = load_items()
 n_queue  = len([i for i in items_all if i.get("status") in ("pending","flagged")])
+n_ignored = len([i for i in items_all if i.get("status") == "ignored"])
 n_sent   = len([i for i in items_all if i.get("status") == "sent"])
 n_total  = len(items_all)
 
@@ -87,6 +89,9 @@ with st.sidebar:
     <div class="metric-card" style="--accent:#3cceff">
         <div class="label">Total</div><div class="value">{n_total}</div>
     </div>
+    <div class="metric-card" style="--accent:#555">
+        <div class="label">Ignored</div><div class="value">{n_ignored}</div>
+    </div>
     """, unsafe_allow_html=True)
     st.markdown("---")
     if st.button("🔄 Refresh", use_container_width=True):
@@ -99,15 +104,13 @@ with st.sidebar:
 st.markdown("""<h1 style="font-family:'DM Mono',monospace;font-size:1.6rem;font-weight:500;color:#3cceff;margin-bottom:1.5rem;">DKM <span style="color:#f35e40">·</span> Commodity Checker</h1>""", unsafe_allow_html=True)
 
 # ── Poll sectie ───────────────────────────────────────────────────────────────
-with st.container():
-    st.markdown('<div class="poll-box">', unsafe_allow_html=True)
-    c1, c2 = st.columns([3,1])
-    with c1:
-        st.markdown("#### 📬 Fetch new emails")
-        st.markdown("<span style='color:#888;font-size:0.82rem'>Picks up unread emails with label <b>CommodityCheckAI</b></span>", unsafe_allow_html=True)
-    with c2:
-        check_btn = st.button("📥 Check Gmail now", type="primary", use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+c1, c2 = st.columns([3,1])
+with c1:
+    st.markdown("#### 📬 Fetch new emails")
+    st.markdown("<span style='color:#888;font-size:0.82rem'>Picks up unread emails with label <b>CommodityCheckAI</b></span>", unsafe_allow_html=True)
+with c2:
+    check_btn = st.button("📥 Check Gmail now", type="primary", use_container_width=True)
+st.markdown("---")
 
 if check_btn:
     with st.spinner("Checking Gmail…"):
@@ -159,7 +162,7 @@ def render_items(items, allow_actions=True):
         reply_body  = item.get("suggested_reply","")
         resolution  = item.get("resolution_type","")
 
-        badge_map = {"pending":("badge-pending","⏳ Pending"),"flagged":("badge-flagged","🚩 Flagged"),"sent":("badge-sent","📤 Sent")}
+        badge_map = {"pending":("badge-pending","⏳ Pending"),"flagged":("badge-flagged","🚩 Flagged"),"sent":("badge-sent","📤 Sent"),"ignored":("badge-ignored","🙈 Ignored")}
         badge_cls, badge_lbl = badge_map.get(status, ("badge-pending", status))
         v_cls = "verdict-found" if ai_found=="true" else ("verdict-ambiguous" if ai_found=="ambiguous" else "verdict-notfound")
 
@@ -190,6 +193,38 @@ def render_items(items, allow_actions=True):
         else:
             confirmed_html = '<div class="code-block" style="border-color:#f35e4055;color:#f35e40;">❓ Niet bevestigd</div>'
 
+        # Bouw code rijen — extraheer alle 10-cijferige codes uit reply
+        import re as _re2
+        all_confirmed = _re.findall(r"•\s*(\d{10})", reply_body) if reply_body else []
+        if not all_confirmed:
+            all_confirmed = [confirmed_code] if confirmed_code else []
+
+        # Bouw code paren: proposed → confirmed
+        proposed_codes = [c.strip() for c in code_asked.split(",") if c.strip()] if "," in code_asked else [code_asked]
+        code_rows_html = ""
+        if len(all_confirmed) > 1 or len(proposed_codes) > 1:
+            # Meerdere codes: toon onder elkaar
+            max_len = max(len(proposed_codes), len(all_confirmed))
+            for idx in range(max_len):
+                prop = proposed_codes[idx] if idx < len(proposed_codes) else ""
+                conf = all_confirmed[idx] if idx < len(all_confirmed) else ""
+                conf_style = "border-color:#2ecc7155;color:#2ecc71;" if conf else "border-color:#f35e4055;color:#f35e40;"
+                conf_icon  = "✅" if conf else "❓"
+                code_rows_html += f"""
+                <div style="display:flex;gap:0.8rem;margin-top:0.4rem;align-items:center;flex-wrap:wrap;">
+                    <div class="code-block" style="min-width:160px;">📦 <strong>{prop}</strong></div>
+                    <div class="code-block" style="{conf_style}min-width:160px;">{conf_icon} <strong>{conf if conf else "Not confirmed"}</strong></div>
+                </div>"""
+            code_rows_html += f'<div style="margin-top:6px;">{res_html}</div>' if res_html else ""
+        else:
+            # Eén code
+            code_rows_html = f"""
+            <div style="display:flex;gap:0.8rem;margin-top:0.8rem;align-items:center;flex-wrap:wrap;">
+                <div class="code-block">📦 <strong>{code_asked}</strong></div>
+                {confirmed_html}
+                {f'<div style="align-self:center;">{res_html}</div>' if res_html else ''}
+            </div>"""
+
         st.markdown(f"""
         <div class="queue-card">
             <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
@@ -198,13 +233,9 @@ def render_items(items, allow_actions=True):
                 <div class="meta" style="flex:0 0 auto;white-space:nowrap;">🕐 {received_at}</div>
                 <span class="badge {badge_cls}" style="flex:0 0 auto;">{badge_lbl}</span>
             </div>
-            <div style="display:flex;gap:0.8rem;margin-top:0.8rem;align-items:flex-start;flex-wrap:wrap;">
-                <div class="code-block">📦 <strong>{code_asked}</strong></div>
-                {confirmed_html}
-                {f'<div style="align-self:center;">{res_html}</div>' if res_html else ''}
-                <div class="ai-verdict {v_cls}" style="flex:3;min-width:200px;">
-                    <strong>AI:</strong> {ai_result}
-                </div>
+            {code_rows_html}
+            <div class="ai-verdict {v_cls}" style="margin-top:0.8rem;">
+                <strong>AI:</strong> {ai_result}
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -229,7 +260,7 @@ def render_items(items, allow_actions=True):
                     st.markdown("---")
 
                 edited_reply = st.text_area("Reply", value=reply_body, height=180, key=f"reply_{row_id}")
-                c1, c2 = st.columns([1,1])
+                c1, c2, c3 = st.columns([2, 1, 1])
                 with c1:
                     if st.button("📤 Approve & Send", key=f"send_{row_id}", type="primary"):
                         with st.spinner("Sending…"):
@@ -244,6 +275,10 @@ def render_items(items, allow_actions=True):
                 with c2:
                     if st.button("🚩 Flag", key=f"flag_{row_id}"):
                         queue.update_status(row_id, "flagged")
+                        st.cache_data.clear(); time.sleep(0.5); st.rerun()
+                with c3:
+                    if st.button("🙈 Ignore", key=f"ignore_{row_id}"):
+                        queue.update_status(row_id, "ignored")
                         st.cache_data.clear(); time.sleep(0.5); st.rerun()
         st.markdown("")
 
