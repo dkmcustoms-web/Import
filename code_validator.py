@@ -139,6 +139,9 @@ I checked your question and below I provide you with my findings.
 
 [Only if not found:] A DKM specialist will follow up for this item.
 
+---
+AI Analysis: [copy your internal analysis here, exactly as written above]
+
 Kind regards,
 DKM Customs — Commodity Validation Service
 
@@ -147,7 +150,8 @@ Rules:
 - Use the confirmed or suggested code as the code in the bullet, NOT the wrong proposed code
 - Description: brief goods description based on HS chapter knowledge (e.g. "Articles of plastics, nes")
 - If multiple codes in email, list each on a separate bullet
-- Keep it short and scannable, no extra explanation
+- Keep it short and scannable
+- Always include the AI Analysis line at the bottom
 
 Return format:
 ANALYSIS: <max 2 sentences ending with RESOLUTION_TYPE: ...>
