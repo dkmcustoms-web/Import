@@ -67,11 +67,15 @@ class GmailReader:
             # Zorg dat sublabel bestaat
             self._ensure_label(mail, GMAIL_LABEL_VERWERKT)
 
-            # Zoek altijd in inbox op subject tag
-            # (mails hebben label maar blijven in inbox staan tenzij gearchiveerd)
-            mail.select("inbox")
-            status, data = mail.search(None, f'(SUBJECT "{SUBJECT_TAG}")'  )
-            print(f"[GmailReader] Inbox search status: {status}, resultaat: {data}")
+            # Selecteer label-folder (mails zijn gearchiveerd via filter)
+            status, _ = mail.select(f'"{GMAIL_LABEL}"')
+            if status != "OK":
+                print(f"[GmailReader] Label '{GMAIL_LABEL}' niet gevonden!")
+                mail.logout()
+                return []
+            # Alle mails in label — deduplicatie via Message-ID in Sheets
+            status, data = mail.search(None, "ALL")
+            print(f"[GmailReader] Label search status: {status}, resultaat: {data}")
 
             if status != "OK" or not data[0]:
                 mail.logout()
