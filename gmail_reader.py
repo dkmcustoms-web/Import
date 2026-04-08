@@ -1,6 +1,7 @@
 """
 gmail_reader.py
 Polls dkmcustoms@gmail.com via IMAP voor commodity code vragen.
+Gebruikt de permanente Message-ID header als unieke identifier.
 - Pikt emails op met label 'CommodityCheckAI' (ongelezen)
 - Voegt sublabel 'CommodityCheckAI/Verwerkt' toe na verwerking
 - Markeert als gelezen — mail blijft gewoon staan in Gmail
@@ -50,8 +51,8 @@ class GmailReader:
         self.user     = os.environ.get("SMTP_USER", "dkmcustoms@gmail.com")
         self.password = os.environ.get("SMTP_PASSWORD", "")
 
-    def _get_or_create_label(self, mail: imaplib.IMAP4_SSL, label: str):
-        """Controleer of label bestaat, anders aanmaken."""
+    def _ensure_label(self, mail: imaplib.IMAP4_SSL, label: str):
+        """Maak label aan als het nog niet bestaat."""
         status, _ = mail.select(f'"{label}"')
         if status != "OK":
             mail.create(f'"{label}"')
@@ -64,32 +65,42 @@ class GmailReader:
             mail.login(self.user, self.password)
 
             # Zorg dat sublabel bestaat
-            self._get_or_create_label(mail, GMAIL_LABEL_VERWERKT)
+            self._ensure_label(mail, GMAIL_LABEL_VERWERKT)
 
             # Selecteer hoofdlabel
             status, _ = mail.select(f'"{GMAIL_LABEL}"')
             if status != "OK":
-                print(f"[GmailReader] Label '{GMAIL_LABEL}' niet gevonden, fallback naar inbox")
+                print(f"[GmailReader] Label '{GMAIL_LABEL}' niet gevonden, fallback inbox")
                 mail.select("inbox")
                 status, data = mail.search(None, f'(UNSEEN SUBJECT "{SUBJECT_TAG}")')
             else:
-                status, data = mail.search(None, "UNSEEN")
+                # Haal ALLE mails op in dit label (gelezen én ongelezen)
+                # Deduplicatie gebeurt via Message-ID in sheets_queue
+                status, data = mail.search(None, "ALL")
 
             if status != "OK" or not data[0]:
                 mail.logout()
                 return []
 
             msg_ids = data[0].split()
-            print(f"[GmailReader] {len(msg_ids)} nieuwe bericht(en) gevonden")
+            print(f"[GmailReader] {len(msg_ids)} bericht(en) in label gevonden")
 
             for num in msg_ids:
                 try:
+                    # Fetch alleen headers eerst voor snelheid
                     status, msg_data = mail.fetch(num, "(RFC822)")
                     if status != "OK":
                         continue
 
                     raw      = msg_data[0][1]
                     msg      = email.message_from_bytes(raw)
+
+                    # ✅ Gebruik permanente Message-ID uit header
+                    message_id = msg.get("Message-ID", "").strip()
+                    if not message_id:
+                        # Fallback: bouw ID op uit subject + datum
+                        message_id = f"{msg.get('Subject','')}-{msg.get('Date','')}"
+
                     subject  = _decode_str(msg.get("Subject", "(geen subject)"))
                     from_h   = _decode_str(msg.get("From", ""))
                     date_str = msg.get("Date", "")
@@ -110,18 +121,17 @@ class GmailReader:
                         received_at = datetime.now().strftime("%Y-%m-%d %H:%M")
 
                     results.append({
-                        "msg_id":       num.decode(),
+                        "msg_id":       message_id,   # ✅ permanente ID
                         "sender_email": sender_email,
                         "subject":      subject,
                         "body":         body,
                         "received_at":  received_at,
                     })
 
-                    # ✅ Alleen markeren als gelezen + sublabel toevoegen
-                    # Mail blijft gewoon staan in Gmail — niets verwijderen
+                    # Markeer als gelezen + voeg sublabel toe
                     mail.store(num, "+FLAGS", "\\Seen")
                     mail.copy(num, f'"{GMAIL_LABEL_VERWERKT}"')
-                    print(f"[GmailReader] Verwerkt: {subject} → label '{GMAIL_LABEL_VERWERKT}' toegevoegd")
+                    print(f"[GmailReader] Verwerkt: {subject}")
 
                 except Exception as e:
                     print(f"[GmailReader] Fout bij bericht {num}: {e}")
