@@ -94,13 +94,10 @@ class GmailReader:
                     raw      = msg_data[0][1]
                     msg      = email.message_from_bytes(raw)
 
-                    # Gebruik permanente Message-ID uit header
-                    message_id = msg.get("Message-ID", "").strip()
+                    # Gebruik permanente Message-ID — normaliseer < > en whitespace
+                    message_id = msg.get("Message-ID", "").strip().strip("<>").strip()
                     if not message_id:
-                        # Fallback: subject + datum + afzender = uniek genoeg
                         message_id = f"{msg.get('From','')}-{msg.get('Subject','')}-{msg.get('Date','')}".strip()
-                    # Verwijder < > uit Message-ID
-                    message_id = message_id.strip("<>")
                     print(f"[GmailReader] Message-ID: {message_id[:80]}")
 
                     subject  = _decode_str(msg.get("Subject", "(geen subject)"))
@@ -130,8 +127,8 @@ class GmailReader:
                         "received_at":  received_at,
                     })
 
-                    # Markeer als gelezen — wordt niet meer opgepikt bij volgende check
-                    mail.store(num, "+FLAGS", "\\Seen")
+                    # Markeer als gelezen via UID voor persistente flag in Gmail
+                    mail.store(num, "+FLAGS", "(\\Seen)")
                     print(f"[GmailReader] Verwerkt + gelezen: {subject}")
 
                 except Exception as e:

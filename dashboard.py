@@ -124,6 +124,7 @@ if check_btn:
                 for i, msg in enumerate(new_messages):
                     progress.progress((i+1)/len(new_messages), text=f"Processing: {msg['subject'][:50]}")
                     if queue.msg_id_exists(msg["msg_id"]):
+                        print(f"[Dashboard] Skip duplicate: {msg['msg_id'][:50]}")
                         continue
                     try:
                         result = validate(msg["body"], msg["subject"])

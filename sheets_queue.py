@@ -26,7 +26,7 @@ SCOPES = [
 COLUMNS = [
     "row_id","msg_id","sender_email","subject","received_at",
     "commodity_code","code_found","ai_verdict","suggested_reply",
-    "status","reply_sent","resolution_type","manual_code","manual_desc","updated_at",
+    "status","reply_sent","resolution_type","confirmed_code","manual_code","manual_desc","updated_at",
 ]
 
 MANUAL_COLUMNS = ["gn_code","omschrijving","added_at"]
@@ -65,15 +65,21 @@ class SheetsQueue:
         return list(reversed(self.ws.get_all_records()))
 
     def msg_id_exists(self, msg_id: str) -> bool:
+        # Normaliseer: verwijder < > en strip whitespace voor vergelijking
+        def normalize(mid):
+            return str(mid).strip().strip("<>").strip()
+        needle = normalize(msg_id)
         col_values = self.ws.col_values(COLUMNS.index("msg_id")+1)
-        return str(msg_id) in col_values
+        return any(normalize(v) == needle for v in col_values)
 
     def add_item(self, item: dict) -> int:
         row_id = len(self.ws.col_values(1))
         now    = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Normaliseer msg_id voor opslag
+        raw_mid = str(item.get("msg_id","")).strip().strip("<>").strip()
         row = [
             row_id,
-            item.get("msg_id",""),
+            raw_mid,
             item.get("sender_email",""),
             item.get("subject",""),
             item.get("received_at",""),
@@ -84,6 +90,7 @@ class SheetsQueue:
             item.get("status","pending"),
             "",
             item.get("resolution_type",""),
+            item.get("confirmed_code",""),
             "",
             "",
             now,
