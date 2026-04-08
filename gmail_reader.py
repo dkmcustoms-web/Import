@@ -73,9 +73,9 @@ class GmailReader:
                 print(f"[GmailReader] Label '{GMAIL_LABEL}' niet gevonden!")
                 mail.logout()
                 return []
-            # Alle mails in label — deduplicatie via Message-ID in Sheets
-            status, data = mail.search(None, "ALL")
-            print(f"[GmailReader] Label search status: {status}, resultaat: {data}")
+            # Enkel ONGELEZEN mails in label ophalen
+            status, data = mail.search(None, "UNSEEN")
+            print(f"[GmailReader] UNSEEN search status: {status}, resultaat: {data}")
 
             if status != "OK" or not data[0]:
                 mail.logout()
@@ -130,10 +130,9 @@ class GmailReader:
                         "received_at":  received_at,
                     })
 
-                    # Markeer als gelezen + voeg sublabel toe
+                    # Markeer als gelezen — wordt niet meer opgepikt bij volgende check
                     mail.store(num, "+FLAGS", "\\Seen")
-                    mail.copy(num, f'"{GMAIL_LABEL_VERWERKT}"')
-                    print(f"[GmailReader] Verwerkt: {subject}")
+                    print(f"[GmailReader] Verwerkt + gelezen: {subject}")
 
                 except Exception as e:
                     print(f"[GmailReader] Fout bij bericht {num}: {e}")
