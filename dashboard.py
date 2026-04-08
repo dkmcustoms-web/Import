@@ -202,19 +202,25 @@ else:
         res_html = res_tag_map.get(resolution, ("",))[0] if resolution else ""
 
         # Bevestigde code ophalen
-        confirmed_code = item.get("confirmed_code", "")
-        manual_c       = item.get("manual_code", "")
-        # Fallback: als manual_code ingevuld is, gebruik die
+        import re as _re
+        confirmed_code = str(item.get("confirmed_code", "")).strip()
+        manual_c       = str(item.get("manual_code", "")).strip()
+
         if not confirmed_code and manual_c:
             confirmed_code = manual_c
-        # Fallback: als exact match, is confirmed = proposed
         if not confirmed_code and ai_found == "true":
             confirmed_code = code_asked
+        # Extraheer 10-cijferige code uit AI tekst als fallback
+        if not confirmed_code and ai_result:
+            codes_in_text = _re.findall(r"\b\d{10}\b", ai_result)
+            for c in codes_in_text:
+                if c != code_asked:
+                    confirmed_code = c
+                    break
+            if not confirmed_code and codes_in_text:
+                confirmed_code = codes_in_text[0]
 
-        # Confirmed code blok
-        if confirmed_code and confirmed_code != code_asked:
-            confirmed_html = f'<div class="code-block" style="flex:0 0 auto;margin-top:0;align-self:flex-start;white-space:nowrap;border-color:#2ecc7155;color:#2ecc71;">✅ Bevestigd: <strong>{confirmed_code}</strong></div>'
-        elif confirmed_code:
+        if confirmed_code:
             confirmed_html = f'<div class="code-block" style="flex:0 0 auto;margin-top:0;align-self:flex-start;white-space:nowrap;border-color:#2ecc7155;color:#2ecc71;">✅ <strong>{confirmed_code}</strong></div>'
         else:
             confirmed_html = '<div class="code-block" style="flex:0 0 auto;margin-top:0;align-self:flex-start;white-space:nowrap;border-color:#f35e4055;color:#f35e40;">❓ Niet bevestigd</div>'
