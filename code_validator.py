@@ -128,30 +128,41 @@ Body:
 
     verdict_prompt = f"""
 You are a customs expert assistant at DKM Customs (Antwerp, Belgium).
-A client sent an email asking about a commodity/GN code.
+A client sent an email asking about one or more commodity/GN codes.
 
 Email subject: {email_subject}
 Email body:
 {email_body[:2000]}
 
-The code they asked about: {commodity_code}
+Code(s) found in email: {commodity_code}
 
 Search result from DKM commodity database:
 {candidates_str}
 Exact match: {csv_result.get('exact', False)}
 
 Task:
-1. Write a short internal analysis (2-3 sentences) of whether the code is correct.
-2. Write a professional reply email to the client (in the same language they used — Dutch or English).
-   - If the code is correct: confirm it, give the description, mention any duty rate if available.
-   - If the code is wrong/not found: say it could not be confirmed and that a DKM specialist will follow up.
-   - Always sign off as: "DKM Customs — Commodity Validation Service"
-   - Keep it concise and professional.
+1. Write a short internal analysis (max 2 sentences) — was the code found, correct, ambiguous?
+   Also state the resolution type: "auto_resolved" (code found + confirmed), "existed" (code found but not exact), "not_found" (code not in database).
+
+2. Write a SHORT professional reply email. Note: there may be multiple questions in one email — answer all of them.
+   Use EXACTLY this structure:
+
+   Dear [name or "Team Member"],
+
+   I checked your question and below I provide you with my findings.
+
+   [For each code asked:]
+   - Code: [code]
+   - [If found]: Confirmed. Description: [description]. Duty rate: [duty rate if available]. You can verify this on the EU TARIC website: https://ec.europa.eu/taxation_customs/dds2/taric/
+   - [If not found]: This code could not be confirmed in our database. A DKM specialist will follow up.
+
+   Kind regards,
+   DKM Customs — Commodity Validation Service
 
 Return your response in this exact format:
-ANALYSIS: <your 2-3 sentence internal analysis>
+ANALYSIS: <2 sentences max. End with RESOLUTION_TYPE: auto_resolved|existed|not_found>
 REPLY:
-<full reply email text>
+<reply email text>
 """
     verdict_resp = client.messages.create(
         model=CLAUDE_MODEL,
@@ -180,9 +191,21 @@ REPLY:
     else:
         code_found = "ambiguous"
 
+    # Extract resolution_type from analysis
+    resolution_type = "not_found"
+    if "auto_resolved" in analysis.lower():
+        resolution_type = "auto_resolved"
+    elif "existed" in analysis.lower():
+        resolution_type = "existed"
+    elif code_found == "true":
+        resolution_type = "auto_resolved"
+    elif code_found == "ambiguous":
+        resolution_type = "existed"
+
     return {
         "commodity_code": commodity_code,
-        "code_found": code_found,
-        "ai_verdict": analysis,
+        "code_found":     code_found,
+        "ai_verdict":     analysis,
         "suggested_reply": reply_body,
+        "resolution_type": resolution_type,
     }
