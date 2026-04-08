@@ -29,56 +29,77 @@ def _load_commodities() -> pd.DataFrame:
 
 def _search_csv(code: str) -> dict:
     """
-    Zoekt een GN-code op in de DKM commodities CSV.
-    Kolommen: gn_code | omschrijving | douanerecht | code_niveau | hoofdstuk | afdeling
-    Returns { found: bool, exact: bool, candidates: list[dict], description: str }
+    Zoeklogica voor DKM commodity checker:
+
+    1. Exacte match op 10 digits → bevestigd
+    2. Geen exacte match → zoek op eerste 8 digits → stel alternatieven voor
+    3. Nog steeds niets → not found
+
+    Returns {
+        found: bool,
+        exact: bool,
+        candidates: list[dict],  # alternatieven op 8-digit niveau
+        suggested: str,           # meest logische alternatief
+        description: str,
+    }
     """
     df = _load_commodities()
 
-    # Enkel cijfers van de gezochte code
-    code_clean = re.sub(r"\D", "", code)
+    code_clean = re.sub(r"\D", "", code).strip()
     if not code_clean:
-        return {"found": False, "exact": False, "candidates": [], "description": ""}
+        return {"found": False, "exact": False, "candidates": [], "suggested": "", "description": ""}
 
-    # Kolommen van taric_clean.csv
     code_col = "gn_code"
     duty_col = "douanerecht" if "douanerecht" in df.columns else None
-    desc_col = None  # geen omschrijving in TARIC CSV
+    db_codes = df[code_col].fillna("").str.replace(r"\D", "", regex=True)
 
-    # Zoek: gn_code begint met de gezochte digits
-    mask = (
-        df[code_col]
-        .fillna("")
-        .str.replace(r"\D", "", regex=True)
-        .str.startswith(code_clean)
-    )
-    hits = df[mask].copy()
-
-    if hits.empty:
-        return {"found": False, "exact": False, "candidates": [], "description": ""}
-
-    candidates = []
-    for _, row in hits.iterrows():
-        entry = {
-            "code":        str(row[code_col]).strip(),
-            "description": str(row[desc_col]).strip() if desc_col else "",
+    # ── Stap 1: Exacte match ─────────────────────────────────────────────
+    exact_hits = df[db_codes == code_clean]
+    if not exact_hits.empty:
+        row = exact_hits.iloc[0]
+        return {
+            "found":       True,
+            "exact":       True,
+            "candidates":  [],
+            "suggested":   code_clean,
             "duty_rate":   str(row[duty_col]).strip() if duty_col else "",
-            "niveau":      str(row.get("code_niveau", "")).strip(),
+            "description": "",
         }
-        candidates.append(entry)
 
-    # Exacte match = gn_code is exact gelijk aan gezochte code
-    exact_match = any(
-        re.sub(r"\D", "", c["code"]) == code_clean
-        for c in candidates
-    )
+    # ── Stap 2: Geen exacte match → zoek op eerste 8 digits ─────────────
+    prefix8 = code_clean[:8]
+    alt_hits = df[db_codes.str.startswith(prefix8)]
 
-    return {
-        "found":       True,
-        "exact":       exact_match,
-        "candidates":  candidates[:5],
-        "description": candidates[0]["description"] if candidates else "",
-    }
+    if not alt_hits.empty:
+        candidates = []
+        for _, row in alt_hits.iterrows():
+            candidates.append({
+                "code":      str(row[code_col]).strip(),
+                "duty_rate": str(row[duty_col]).strip() if duty_col else "",
+            })
+        # Deduplicate
+        seen = set()
+        unique = []
+        for c in candidates:
+            if c["code"] not in seen:
+                seen.add(c["code"])
+                unique.append(c)
+
+        # Meest logische suggestie = hoogste suffix (meest specifiek)
+        sorted_candidates = sorted(unique, key=lambda x: x["code"], reverse=True)
+        suggested = sorted_candidates[0]["code"]
+
+        return {
+            "found":       True,
+            "exact":       False,
+            "candidates":  unique[:10],
+            "suggested":   suggested,
+            "duty_rate":   sorted_candidates[0]["duty_rate"],
+            "description": f"Code {code_clean} niet gevonden. Mogelijke alternatieven op basis van {prefix8}xx: {', '.join([c['code'] for c in unique])}",
+        }
+
+    # ── Stap 3: Niets gevonden ───────────────────────────────────────────
+    return {"found": False, "exact": False, "candidates": [], "suggested": "", "description": ""}
 
 
 def validate(email_body: str, email_subject: str) -> dict:
@@ -97,9 +118,10 @@ def validate(email_body: str, email_subject: str) -> dict:
     # ── Step 1: Extract the commodity code from the email ──────────────────
     extract_prompt = f"""
 You are a customs expert assistant at DKM Customs (Antwerp).
-Extract the commodity/GN/HS/TARIC code being asked about from the email below.
-Return ONLY the numeric code string, nothing else. If multiple codes are mentioned, return the primary one.
+Extract ALL commodity/GN/HS/TARIC codes mentioned in the email below.
+Return ONLY the numeric codes, comma-separated (e.g. "3926909790,3926909799").
 If no code can be found, return "UNKNOWN".
+Include both codes that are being asked about AND codes that are suggested as alternatives.
 
 Subject: {email_subject}
 Body:
@@ -107,62 +129,66 @@ Body:
 """
     extract_resp = client.messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=64,
+        max_tokens=128,
         messages=[{"role": "user", "content": extract_prompt}],
     )
-    commodity_code = extract_resp.content[0].text.strip().replace(" ", "").replace(".", "")
+    raw_codes = extract_resp.content[0].text.strip()
+    # Neem de eerste code als primaire, maar geef alle codes mee aan Claude
+    all_codes = [c.strip().replace(" ","").replace(".","") for c in raw_codes.split(",") if c.strip()]
+    commodity_code = all_codes[0] if all_codes else "UNKNOWN"
 
-    # ── Step 2: Look up in CSV ──────────────────────────────────────────────
-    csv_result = _search_csv(commodity_code)
+    # ── Step 2: Look up ALL codes in CSV ──────────────────────────────────
+    all_results = {}
+    for code in all_codes:
+        all_results[code] = _search_csv(code)
+    # Primaire result = eerste code
+    csv_result = all_results.get(commodity_code, all_results[list(all_results.keys())[0]])
 
-    # ── Step 3: Ask Claude to write verdict + reply ─────────────────────────
+    # ── Step 3: Build search summary for Claude ─────────────────────────
     candidates_str = ""
-    if csv_result["found"]:
-        for c in csv_result["candidates"]:
-            candidates_str += f"  - Code: {c['code']} | {c['description']}"
-            if c.get("duty_rate"):
-                candidates_str += f" | Duty: {c['duty_rate']}"
-            candidates_str += "\n"
-    else:
-        candidates_str = "  (no match found in DKM commodity database)"
+    for code, result in all_results.items():
+        if result["exact"]:
+            candidates_str += f"  - Code {code}: EXACT MATCH ✓ | Duty: {result.get('duty_rate','')}\n"
+        elif result["found"]:
+            alts = ", ".join([c["code"] for c in result.get("candidates",[])])
+            candidates_str += f"  - Code {code}: NOT EXACT — suggested alternative: {result.get('suggested','')} | All alternatives on 8-digit level: {alts}\n"
+        else:
+            candidates_str += f"  - Code {code}: NOT FOUND in database\n"
 
     verdict_prompt = f"""
 You are a customs expert assistant at DKM Customs (Antwerp, Belgium).
-A client sent an email asking about one or more commodity/GN codes.
+Declarants ask you to verify commodity/GN codes. They propose a code that may be wrong — your job is to confirm or correct it.
+
+Logic:
+- If the proposed code is an EXACT MATCH in the database → confirm it
+- If the proposed code is NOT found but alternatives exist on the same 8-digit level → suggest the most logical alternative (highest/most specific suffix)
+- If nothing is found at all → flag for specialist follow-up
 
 Email subject: {email_subject}
 Email body:
 {email_body[:2000]}
 
-Code(s) found in email: {commodity_code}
-
-Search result from DKM commodity database:
+Database lookup results:
 {candidates_str}
-Exact match: {csv_result.get('exact', False)}
 
 Task:
-1. Write a short internal analysis (max 2 sentences) — was the code found, correct, ambiguous?
-   Also state the resolution type: "auto_resolved" (code found + confirmed), "existed" (code found but not exact), "not_found" (code not in database).
+1. Short internal analysis (max 2 sentences). End with: RESOLUTION_TYPE: auto_resolved|existed|not_found
 
-2. Write a SHORT professional reply email. Note: there may be multiple questions in one email — answer all of them.
+2. Write a SHORT professional reply. There may be multiple questions in one email — handle each one.
    Use EXACTLY this structure:
 
-   Dear [name or "Team Member"],
+   Dear Team Member,
 
    I checked your question and below I provide you with my findings.
 
-   [For each code asked:]
-   - Code: [code]
-   - [If found]: Confirmed. Description: [description]. Duty rate: [duty rate if available]. You can verify this on the EU TARIC website: https://ec.europa.eu/taxation_customs/dds2/taric/
-   - [If not found]: This code could not be confirmed in our database. A DKM specialist will follow up.
+   [For each code:]
+   • Code proposed: [code]
+     [If exact match]: ✓ Confirmed. Duty rate: [rate]. Verify: https://ec.europa.eu/taxation_customs/dds2/taric/
+     [If alternative found]: Code [proposed] does not exist. Based on the 8-digit prefix, the most likely correct code is [suggested alternative] (duty: [rate]). Please verify on: https://ec.europa.eu/taxation_customs/dds2/taric/
+     [If not found]: Could not be confirmed. A DKM specialist will follow up.
 
    Kind regards,
    DKM Customs — Commodity Validation Service
-
-Return your response in this exact format:
-ANALYSIS: <2 sentences max. End with RESOLUTION_TYPE: auto_resolved|existed|not_found>
-REPLY:
-<reply email text>
 """
     verdict_resp = client.messages.create(
         model=CLAUDE_MODEL,
