@@ -201,18 +201,26 @@ else:
         }
         res_html = res_tag_map.get(resolution, ("",))[0] if resolution else ""
 
+        res_row = f'<div style="margin-top:6px;">{res_html}</div>' if res_html else ''
         st.markdown(f"""
         <div class="queue-card">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-                <div>
-                    <div class="subject">{subject}</div>
-                    <div class="meta">✉️ {sender_mail} &nbsp;·&nbsp; 🕐 {received_at}</div>
-                    {res_html}
-                </div>
-                <span class="badge {badge_cls}">{badge_lbl}</span>
+            <!-- Rij 1: subject | verzender | datum | badge -->
+            <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
+                <div class="subject" style="flex:2;min-width:180px;">{subject}</div>
+                <div class="meta" style="flex:1;min-width:120px;">✉️ {sender_mail}</div>
+                <div class="meta" style="flex:0 0 auto;white-space:nowrap;">🕐 {received_at}</div>
+                <span class="badge {badge_cls}" style="flex:0 0 auto;">{badge_lbl}</span>
             </div>
-            <div class="code-block">Commodity code: <strong>{code_asked}</strong></div>
-            <div class="ai-verdict {v_cls}"><strong>AI analyse:</strong> {ai_result}</div>
+            <!-- Rij 2: code | AI analyse naast elkaar -->
+            <div style="display:flex;gap:0.8rem;margin-top:0.8rem;align-items:stretch;flex-wrap:wrap;">
+                <div class="code-block" style="flex:0 0 auto;margin-top:0;align-self:flex-start;white-space:nowrap;">
+                    📦 <strong>{code_asked}</strong>
+                </div>
+                <div class="ai-verdict {v_cls}" style="flex:3;min-width:200px;margin-top:0;">
+                    <strong>AI:</strong> {ai_result}
+                </div>
+            </div>
+            {res_row}
         </div>
         """, unsafe_allow_html=True)
 
