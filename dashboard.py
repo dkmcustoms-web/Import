@@ -201,7 +201,24 @@ else:
         }
         res_html = res_tag_map.get(resolution, ("",))[0] if resolution else ""
 
-        res_row = f'<div style="margin-top:6px;">{res_html}</div>' if res_html else ''
+        # Bevestigde code ophalen
+        confirmed_code = item.get("confirmed_code", "")
+        manual_c       = item.get("manual_code", "")
+        # Fallback: als manual_code ingevuld is, gebruik die
+        if not confirmed_code and manual_c:
+            confirmed_code = manual_c
+        # Fallback: als exact match, is confirmed = proposed
+        if not confirmed_code and ai_found == "true":
+            confirmed_code = code_asked
+
+        # Confirmed code blok
+        if confirmed_code and confirmed_code != code_asked:
+            confirmed_html = f'<div class="code-block" style="flex:0 0 auto;margin-top:0;align-self:flex-start;white-space:nowrap;border-color:#2ecc7155;color:#2ecc71;">✅ Bevestigd: <strong>{confirmed_code}</strong></div>'
+        elif confirmed_code:
+            confirmed_html = f'<div class="code-block" style="flex:0 0 auto;margin-top:0;align-self:flex-start;white-space:nowrap;border-color:#2ecc7155;color:#2ecc71;">✅ <strong>{confirmed_code}</strong></div>'
+        else:
+            confirmed_html = '<div class="code-block" style="flex:0 0 auto;margin-top:0;align-self:flex-start;white-space:nowrap;border-color:#f35e4055;color:#f35e40;">❓ Niet bevestigd</div>'
+
         st.markdown(f"""
         <div class="queue-card">
             <!-- Rij 1: subject | verzender | datum | badge -->
@@ -211,16 +228,17 @@ else:
                 <div class="meta" style="flex:0 0 auto;white-space:nowrap;">🕐 {received_at}</div>
                 <span class="badge {badge_cls}" style="flex:0 0 auto;">{badge_lbl}</span>
             </div>
-            <!-- Rij 2: code | AI analyse naast elkaar -->
-            <div style="display:flex;gap:0.8rem;margin-top:0.8rem;align-items:stretch;flex-wrap:wrap;">
-                <div class="code-block" style="flex:0 0 auto;margin-top:0;align-self:flex-start;white-space:nowrap;">
-                    📦 <strong>{code_asked}</strong>
+            <!-- Rij 2: voorgestelde code | bevestigde code | resolution tag | AI analyse -->
+            <div style="display:flex;gap:0.8rem;margin-top:0.8rem;align-items:flex-start;flex-wrap:wrap;">
+                <div class="code-block" style="flex:0 0 auto;margin-top:0;white-space:nowrap;">
+                    📦 Voorgesteld: <strong>{code_asked}</strong>
                 </div>
+                {confirmed_html}
+                {f'<div style="flex:0 0 auto;align-self:center;">{res_html}</div>' if res_html else ''}
                 <div class="ai-verdict {v_cls}" style="flex:3;min-width:200px;margin-top:0;">
                     <strong>AI:</strong> {ai_result}
                 </div>
             </div>
-            {res_row}
         </div>
         """, unsafe_allow_html=True)
 
