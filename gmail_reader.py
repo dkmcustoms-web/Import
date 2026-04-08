@@ -1,7 +1,8 @@
 """
 gmail_reader.py
-Polls dkmcustoms@gmail.com via IMAP for commodity code questions.
-Marks processed emails as READ so they aren't re-processed.
+Polls dkmcustoms@gmail.com via IMAP voor commodity code vragen.
+Detectie via Gmail label 'CommodityCheckAI' (aangemaakt door Gmail filter op #commoditycheckAI).
+Markeert verwerkte emails als SEEN zodat ze niet opnieuw worden opgepikt.
 """
 
 import os
@@ -14,14 +15,14 @@ from email.header import decode_header
 IMAP_HOST = "imap.gmail.com"
 IMAP_PORT = 993
 
-KEYWORDS = [
-    "commodity code", "gn code", "hs code", "taric", "goederencode",
-    "goederennummer", "commodity", "nomenclatuur", "tariff code",
-]
+# Gmail label toegevoegd door de Gmail filter
+GMAIL_LABEL = "CommodityCheckAI"
+
+# Verplichte tag in het subject (dubbele check)
+SUBJECT_TAG = "#commoditycheckAI"
 
 
 def _decode_str(value: str) -> str:
-    """Decode encoded email header strings."""
     parts = decode_header(value)
     decoded = []
     for part, enc in parts:
@@ -33,7 +34,6 @@ def _decode_str(value: str) -> str:
 
 
 def _extract_body(msg) -> str:
-    """Extract plain text body from email message."""
     body = ""
     if msg.is_multipart():
         for part in msg.walk():
@@ -47,11 +47,6 @@ def _extract_body(msg) -> str:
     return body
 
 
-def _is_commodity_question(subject: str, body: str) -> bool:
-    combined = (subject + " " + body).lower()
-    return any(kw in combined for kw in KEYWORDS)
-
-
 class GmailReader:
     def __init__(self):
         self.user     = os.environ.get("SMTP_USER", "dkmcustoms@gmail.com")
@@ -59,22 +54,31 @@ class GmailReader:
 
     def fetch_new_messages(self) -> list[dict]:
         """
-        Connects via IMAP, fetches UNSEEN emails that look like commodity questions.
-        Marks them as SEEN after reading.
-        Returns list of dicts: { msg_id, sender_email, subject, body, received_at }
+        Haalt ongelezen emails op uit het Gmail label 'CommodityCheckAI'.
+        Fallback: zoekt in inbox op subject tag als label niet bestaat.
+        Markeert emails als SEEN na verwerking.
         """
         results = []
         try:
             mail = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT)
             mail.login(self.user, self.password)
-            mail.select("inbox")
 
-            # Search for unread messages
-            status, data = mail.search(None, "UNSEEN")
+            # Probeer eerst het label als IMAP folder te selecteren
+            status, _ = mail.select(f'"{GMAIL_LABEL}"')
             if status != "OK":
+                print(f"[GmailReader] Label '{GMAIL_LABEL}' niet gevonden, gebruik inbox fallback")
+                mail.select("inbox")
+                status, data = mail.search(None, f'(UNSEEN SUBJECT "{SUBJECT_TAG}")')
+            else:
+                status, data = mail.search(None, "UNSEEN")
+
+            if status != "OK" or not data[0]:
+                mail.logout()
                 return []
 
             msg_ids = data[0].split()
+            print(f"[GmailReader] {len(msg_ids)} nieuwe bericht(en) gevonden")
+
             for num in msg_ids:
                 try:
                     status, msg_data = mail.fetch(num, "(RFC822)")
@@ -89,15 +93,16 @@ class GmailReader:
                     date_str    = msg.get("Date", "")
                     body        = _extract_body(msg)
 
-                    # Only process commodity questions
-                    if not _is_commodity_question(subject, body):
+                    # Dubbele check: subject moet de tag bevatten
+                    if SUBJECT_TAG.lower() not in subject.lower():
+                        print(f"[GmailReader] Overgeslagen (geen tag in subject): {subject}")
                         continue
 
-                    # Extract email address
-                    email_match = re.search(r"[\w.\-+]+@[\w.\-]+", from_header)
+                    # Email adres extraheren
+                    email_match  = re.search(r"[\w.\-+]+@[\w.\-]+", from_header)
                     sender_email = email_match.group(0) if email_match else from_header
 
-                    # Parse date
+                    # Datum parsen
                     try:
                         received_at = datetime.strptime(
                             date_str[:25].strip(), "%a, %d %b %Y %H:%M:%S"
@@ -113,15 +118,16 @@ class GmailReader:
                         "received_at":  received_at,
                     })
 
-                    # Mark as read so we don't re-process
+                    # Markeer als gelezen — niet opnieuw verwerken
                     mail.store(num, "+FLAGS", "\\Seen")
+                    print(f"[GmailReader] Verwerkt: {subject} van {sender_email}")
 
                 except Exception as e:
-                    print(f"[GmailReader] Error reading message {num}: {e}")
+                    print(f"[GmailReader] Fout bij bericht {num}: {e}")
 
             mail.logout()
 
         except Exception as e:
-            print(f"[GmailReader] IMAP error: {e}")
+            print(f"[GmailReader] IMAP fout: {e}")
 
         return results
