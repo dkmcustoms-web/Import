@@ -193,38 +193,36 @@ def render_items(items, allow_actions=True):
         else:
             confirmed_html = '<div class="code-block" style="border-color:#f35e4055;color:#f35e40;">❓ Niet bevestigd</div>'
 
-        # Bouw code rijen — extraheer alle 10-cijferige codes uit reply
-        import re as _re2
-        all_confirmed = _re.findall(r"•\s*(\d{10})", reply_body) if reply_body else []
-        if not all_confirmed:
-            all_confirmed = [confirmed_code] if confirmed_code else []
-
-        # Bouw code paren: proposed → confirmed
+        # Extraheer alle 10-cijferige codes uit de reply bullets
         code_asked_str = str(code_asked).strip() if code_asked else ""
-        proposed_codes = [c.strip() for c in code_asked_str.split(",") if c.strip()] if "," in code_asked_str else ([code_asked_str] if code_asked_str else [])
-        code_rows_html = ""
-        if len(all_confirmed) > 1 or len(proposed_codes) > 1:
-            # Meerdere codes: toon onder elkaar
-            max_len = max(len(proposed_codes), len(all_confirmed))
-            for idx in range(max_len):
-                prop = proposed_codes[idx] if idx < len(proposed_codes) else ""
-                conf = all_confirmed[idx] if idx < len(all_confirmed) else ""
-                conf_style = "border-color:#2ecc7155;color:#2ecc71;" if conf else "border-color:#f35e4055;color:#f35e40;"
-                conf_icon  = "✅" if conf else "❓"
-                code_rows_html += f"""
-                <div style="display:flex;gap:0.8rem;margin-top:0.4rem;align-items:center;flex-wrap:wrap;">
-                    <div class="code-block" style="min-width:160px;">📦 <strong>{prop}</strong></div>
-                    <div class="code-block" style="{conf_style}min-width:160px;">{conf_icon} <strong>{conf if conf else "Not confirmed"}</strong></div>
-                </div>"""
-            code_rows_html += f'<div style="margin-top:6px;">{res_html}</div>' if res_html else ""
-        else:
-            # Eén code
-            code_rows_html = f"""
-            <div style="display:flex;gap:0.8rem;margin-top:0.8rem;align-items:center;flex-wrap:wrap;">
-                <div class="code-block">📦 <strong>{code_asked_str}</strong></div>
-                {confirmed_html}
-                {f'<div style="align-self:center;">{res_html}</div>' if res_html else ''}
-            </div>"""
+        # Haal alle confirmed codes uit reply (bullet lines: • 1234567890 — ...)
+        all_confirmed = _re.findall(r"[•\-]\s*(\d{10})\s+[\u2014\-]", str(reply_body)) if reply_body else []
+        if not all_confirmed:
+            # Fallback: alle 10-cijferige codes in reply
+            all_confirmed = _re.findall(r"\b(\d{10})\b", str(reply_body)) if reply_body else []
+        if not all_confirmed and confirmed_code:
+            all_confirmed = [confirmed_code]
+
+        # Proposed codes (enkel primaire code beschikbaar)
+        proposed_codes = [code_asked_str] if code_asked_str else []
+
+        # Bouw HTML rijen
+        code_rows_parts = []
+        max_len = max(len(proposed_codes), len(all_confirmed), 1)
+        for idx in range(max_len):
+            prop = proposed_codes[idx] if idx < len(proposed_codes) else proposed_codes[0] if proposed_codes else ""
+            conf = all_confirmed[idx] if idx < len(all_confirmed) else ""
+            conf_style = "border-color:#2ecc7155;color:#2ecc71;" if conf else "border-color:#f35e4055;color:#f35e40;"
+            conf_icon  = "✅" if conf else "❓"
+            conf_text  = conf if conf else "Not confirmed"
+            code_rows_parts.append(
+                f'<div style="display:flex;gap:0.8rem;margin-top:0.4rem;align-items:center;">' +
+                f'<div class="code-block" style="min-width:160px;">📦 <strong>{prop}</strong></div>' +
+                f'<div class="code-block" style="{conf_style}min-width:160px;">{conf_icon} <strong>{conf_text}</strong></div>' +
+                f'</div>'
+            )
+        res_div = f'<div style="margin-top:6px;">{res_html}</div>' if res_html else ""
+        code_rows_html = "\n".join(code_rows_parts) + res_div
 
         st.markdown(f"""
         <div class="queue-card">
