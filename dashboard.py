@@ -200,7 +200,8 @@ def render_items(items, allow_actions=True):
             all_confirmed = [confirmed_code] if confirmed_code else []
 
         # Bouw code paren: proposed → confirmed
-        proposed_codes = [c.strip() for c in code_asked.split(",") if c.strip()] if "," in code_asked else [code_asked]
+        code_asked_str = str(code_asked).strip() if code_asked else ""
+        proposed_codes = [c.strip() for c in code_asked_str.split(",") if c.strip()] if "," in code_asked_str else ([code_asked_str] if code_asked_str else [])
         code_rows_html = ""
         if len(all_confirmed) > 1 or len(proposed_codes) > 1:
             # Meerdere codes: toon onder elkaar
@@ -220,7 +221,7 @@ def render_items(items, allow_actions=True):
             # Eén code
             code_rows_html = f"""
             <div style="display:flex;gap:0.8rem;margin-top:0.8rem;align-items:center;flex-wrap:wrap;">
-                <div class="code-block">📦 <strong>{code_asked}</strong></div>
+                <div class="code-block">📦 <strong>{code_asked_str}</strong></div>
                 {confirmed_html}
                 {f'<div style="align-self:center;">{res_html}</div>' if res_html else ''}
             </div>"""
