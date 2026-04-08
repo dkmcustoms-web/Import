@@ -13,7 +13,7 @@ from functools import lru_cache
 CLAUDE_MODEL = "claude-opus-4-5"
 
 
-@lru_cache(maxsize=1)
+# @lru_cache(maxsize=1)
 def _load_commodities() -> pd.DataFrame:
     """Load commodities CSV — leest ruwe lijnen en parseert manueel."""
     csv_path = os.environ.get("COMMODITIES_CSV_PATH", "commodities.csv")
