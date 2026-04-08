@@ -21,9 +21,7 @@ html,body,[class*="css"]{font-family:'DM Sans',sans-serif;}
 [data-testid="stSidebar"]{background:#1a1a2e!important;border-right:2px solid #3cceff33;}
 [data-testid="stSidebar"] *{color:#e0e0e0!important;}
 .main{background:#0f0f1a;} .block-container{padding-top:2rem;}
-.dkm-header{display:flex;align-items:center;gap:1rem;border-bottom:2px solid #3cceff44;padding-bottom:1rem;margin-bottom:1.5rem;}
-.dkm-header h1{font-family:'DM Mono',monospace;font-size:1.6rem;font-weight:500;color:#3cceff;margin:0;}
-.dkm-header span{color:#f35e40;}
+
 .metric-card{background:#16213e;border:1px solid #3cceff22;border-radius:8px;padding:0.8rem 1rem;margin-bottom:0.6rem;border-left:3px solid var(--accent);}
 .metric-card .label{font-size:0.7rem;color:#888;text-transform:uppercase;letter-spacing:1px;}
 .metric-card .value{font-family:'DM Mono',monospace;font-size:1.6rem;color:#fff;margin-top:2px;}
@@ -77,17 +75,17 @@ n_total  = len(items_all)
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 🔍 Commodity Checker")
+    st.image("dkm_logo.png", width=140)
     st.markdown("---")
     st.markdown(f"""
     <div class="metric-card" style="--accent:#f0a500">
         <div class="label">In queue</div><div class="value">{n_queue}</div>
     </div>
     <div class="metric-card" style="--accent:#2ecc71">
-        <div class="label">Verstuurd</div><div class="value">{n_sent}</div>
+        <div class="label">Sent</div><div class="value">{n_sent}</div>
     </div>
     <div class="metric-card" style="--accent:#3cceff">
-        <div class="label">Totaal</div><div class="value">{n_total}</div>
+        <div class="label">Total</div><div class="value">{n_total}</div>
     </div>
     """, unsafe_allow_html=True)
     st.markdown("---")
@@ -95,34 +93,33 @@ with st.sidebar:
         st.cache_data.clear(); st.rerun()
     auto_refresh = st.toggle("Auto-refresh (60s)", value=False)
     st.markdown("---")
-    st.markdown("**DKM Customs**")
     st.markdown("<span style='color:#3cceff;font-size:0.75rem;font-family:monospace'>Commodity Checker v1.0</span>", unsafe_allow_html=True)
 
 # ── Header ────────────────────────────────────────────────────────────────────
-st.markdown('<div class="dkm-header"><h1>DKM <span>·</span> Commodity Checker</h1></div>', unsafe_allow_html=True)
+st.markdown('<h1 style="font-family:'DM Mono',monospace;font-size:1.6rem;font-weight:500;color:#3cceff;margin-bottom:1.5rem;">DKM <span style='color:#f35e40'>·</span> Commodity Checker</h1>', unsafe_allow_html=True)
 
 # ── Poll sectie ───────────────────────────────────────────────────────────────
 with st.container():
     st.markdown('<div class="poll-box">', unsafe_allow_html=True)
     c1, c2 = st.columns([3,1])
     with c1:
-        st.markdown("#### 📬 Nieuwe mails ophalen")
-        st.markdown("<span style='color:#888;font-size:0.82rem'>Pikt ongelezen mails op met label <b>CommodityCheckAI</b></span>", unsafe_allow_html=True)
+        st.markdown("#### 📬 Fetch new emails")
+        st.markdown("<span style='color:#888;font-size:0.82rem'>Picks up unread emails with label <b>CommodityCheckAI</b></span>", unsafe_allow_html=True)
     with c2:
-        check_btn = st.button("📥 Check Gmail nu", type="primary", use_container_width=True)
+        check_btn = st.button("📥 Check Gmail now", type="primary", use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 if check_btn:
-    with st.spinner("Gmail controleren…"):
+    with st.spinner("Checking Gmail…"):
         try:
             new_messages = reader.fetch_new_messages()
             if not new_messages:
-                st.info("Geen nieuwe mails gevonden met tag `#commoditycheckAI`.")
+                st.info("No new emails found with tag `#commoditycheckAI`.")
             else:
-                progress = st.progress(0, text="Valideren…")
+                progress = st.progress(0, text="Validating…")
                 added = 0
                 for i, msg in enumerate(new_messages):
-                    progress.progress((i+1)/len(new_messages), text=f"Verwerken: {msg['subject'][:50]}")
+                    progress.progress((i+1)/len(new_messages), text=f"Processing: {msg['subject'][:50]}")
                     if queue.msg_id_exists(msg["msg_id"]):
                         continue
                     try:
@@ -137,17 +134,17 @@ if check_btn:
                     added += 1
                 progress.empty()
                 if added > 0:
-                    st.success(f"✅ {added} nieuwe mail(s) verwerkt!")
+                    st.success(f"✅ {added} new email(s) processed!")
                     st.cache_data.clear(); time.sleep(1); st.rerun()
                 else:
-                    st.info("Mails al eerder verwerkt.")
+                    st.info("Emails already processed.")
         except Exception as e:
-            st.error(f"Fout: {e}")
+            st.error(f"Error: {e}")
 
 # ── Render functie ────────────────────────────────────────────────────────────
 def render_items(items, allow_actions=True):
     if not items:
-        st.info("Geen items.")
+        st.info("No items.")
         return
 
     for item in items:
@@ -162,7 +159,7 @@ def render_items(items, allow_actions=True):
         reply_body  = item.get("suggested_reply","")
         resolution  = item.get("resolution_type","")
 
-        badge_map = {"pending":("badge-pending","⏳ Pending"),"flagged":("badge-flagged","🚩 Geflagd"),"sent":("badge-sent","📤 Verstuurd")}
+        badge_map = {"pending":("badge-pending","⏳ Pending"),"flagged":("badge-flagged","🚩 Flagged"),"sent":("badge-sent","📤 Sent")}
         badge_cls, badge_lbl = badge_map.get(status, ("badge-pending", status))
         v_cls = "verdict-found" if ai_found=="true" else ("verdict-ambiguous" if ai_found=="ambiguous" else "verdict-notfound")
 
@@ -213,39 +210,39 @@ def render_items(items, allow_actions=True):
         """, unsafe_allow_html=True)
 
         if allow_actions and status in ("pending","flagged"):
-            with st.expander("✏️ Review, manuele code & reply", expanded=False):
+            with st.expander("✏️ Review, manual code & reply", expanded=False):
                 if ai_found in ("false",""):
-                    st.markdown("**🔎 Code niet gevonden — manueel toevoegen:**")
+                    st.markdown("**🔎 Code not found — add manually:**")
                     mc1, mc2 = st.columns([1,2])
                     with mc1:
-                        manual_code = st.text_input("GN Code", key=f"mcode_{row_id}", placeholder="bijv. 3926909700")
+                        manual_code = st.text_input("GN Code", key=f"mcode_{row_id}", placeholder="e.g. 3926909700")
                     with mc2:
-                        manual_desc = st.text_input("Omschrijving", key=f"mdesc_{row_id}", placeholder="bijv. Articles of plastics")
-                    if st.button("💾 Opslaan", key=f"msave_{row_id}"):
+                        manual_desc = st.text_input("Description", key=f"mdesc_{row_id}", placeholder="e.g. Articles of plastics")
+                    if st.button("💾 Save", key=f"msave_{row_id}"):
                         if manual_code:
                             queue.add_manual_code(manual_code, manual_desc)
                             queue.update_status(row_id, status, resolution_type="manual", manual_code=manual_code, manual_desc=manual_desc)
-                            st.success(f"Code {manual_code} opgeslagen!")
+                            st.success(f"Code {manual_code} saved!")
                             st.cache_data.clear(); st.rerun()
                         else:
-                            st.warning("Vul een GN code in.")
+                            st.warning("Please enter a GN code.")
                     st.markdown("---")
 
                 edited_reply = st.text_area("Reply", value=reply_body, height=180, key=f"reply_{row_id}")
                 c1, c2 = st.columns([1,1])
                 with c1:
-                    if st.button("📤 Goedkeuren & Versturen", key=f"send_{row_id}", type="primary"):
-                        with st.spinner("Versturen…"):
+                    if st.button("📤 Approve & Send", key=f"send_{row_id}", type="primary"):
+                        with st.spinner("Sending…"):
                             ok = sender.send_reply(to=sender_mail, subject=f"Re: {subject}", body=edited_reply)
                             if ok:
                                 res_type = "auto_resolved" if ai_found=="true" else ("manual" if ai_found=="false" else "existed")
                                 queue.update_status(row_id, "sent", reply_sent=edited_reply, resolution_type=res_type)
-                                st.success("✅ Verstuurd!")
+                                st.success("✅ Sent!")
                                 st.cache_data.clear(); time.sleep(1); st.rerun()
                             else:
-                                st.error("❌ Versturen mislukt.")
+                                st.error("❌ Failed to send.")
                 with c2:
-                    if st.button("🚩 Flaggen", key=f"flag_{row_id}"):
+                    if st.button("🚩 Flag", key=f"flag_{row_id}"):
                         queue.update_status(row_id, "flagged")
                         st.cache_data.clear(); time.sleep(0.5); st.rerun()
         st.markdown("")
@@ -257,8 +254,8 @@ sent_items   = [i for i in items_all if i.get("status") == "sent"]
 
 tab_queue, tab_sent, tab_all = st.tabs([
     f"📋 Queue  ({len(queue_items)})",
-    f"📤 Verstuurd  ({len(sent_items)})",
-    f"🗂️ Alle  ({len(items_all)})",
+    f"📤 Sent  ({len(sent_items)})",
+    f"🗂️ All  ({len(items_all)})",
 ])
 
 with tab_queue:
