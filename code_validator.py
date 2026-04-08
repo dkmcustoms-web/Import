@@ -17,7 +17,7 @@ def _load_commodities() -> pd.DataFrame:
     Laad taric_clean.csv — UTF-8, puntkomma-separator.
     Kolommen: gn_code | douanerecht | type_duty
     """
-    csv_path = os.environ.get("COMMODITIES_CSV_PATH", "commodities.csv")
+    csv_path = os.environ.get("COMMODITIES_CSV_PATH", "taric_clean.csv")
     df = pd.read_csv(csv_path, dtype=str, sep=";", encoding="utf-8")
     df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
     df = df.fillna("")
