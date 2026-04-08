@@ -94,11 +94,14 @@ class GmailReader:
                     raw      = msg_data[0][1]
                     msg      = email.message_from_bytes(raw)
 
-                    # ✅ Gebruik permanente Message-ID uit header
+                    # Gebruik permanente Message-ID uit header
                     message_id = msg.get("Message-ID", "").strip()
                     if not message_id:
-                        # Fallback: bouw ID op uit subject + datum
-                        message_id = f"{msg.get('Subject','')}-{msg.get('Date','')}"
+                        # Fallback: subject + datum + afzender = uniek genoeg
+                        message_id = f"{msg.get('From','')}-{msg.get('Subject','')}-{msg.get('Date','')}".strip()
+                    # Verwijder < > uit Message-ID
+                    message_id = message_id.strip("<>")
+                    print(f"[GmailReader] Message-ID: {message_id[:80]}")
 
                     subject  = _decode_str(msg.get("Subject", "(geen subject)"))
                     from_h   = _decode_str(msg.get("From", ""))

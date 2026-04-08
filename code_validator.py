@@ -15,28 +15,53 @@ CLAUDE_MODEL = "claude-opus-4-5"
 
 @lru_cache(maxsize=1)
 def _load_commodities() -> pd.DataFrame:
-    """Load commodities CSV — robust tegen slechte rijen en verschillende separators."""
+    """Load commodities CSV — leest ruwe lijnen en parseert manueel."""
     csv_path = os.environ.get("COMMODITIES_CSV_PATH", "commodities.csv")
 
-    for sep in [",", ";", "\t"]:
-        for enc in ["utf-8", "latin-1", "cp1252"]:
-            try:
-                df = pd.read_csv(
-                    csv_path,
-                    dtype=str,
-                    sep=sep,
-                    encoding=enc,
-                    on_bad_lines="skip",
-                    engine="python",
-                )
-                if len(df.columns) >= 1:
-                    df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
-                    print(f"[Validator] CSV geladen: {len(df)} rijen, kolommen: {list(df.columns)}")
-                    return df
-            except Exception:
-                continue
+    # Lees het bestand ruwe lijnen per lijn — volledig tolerant
+    for enc in ["utf-8", "latin-1", "cp1252"]:
+        try:
+            with open(csv_path, "r", encoding=enc) as f:
+                lines = f.readlines()
+            break
+        except Exception:
+            continue
+    else:
+        raise RuntimeError(f"Kan commodities CSV niet openen: {csv_path}")
 
-    raise RuntimeError(f"Kan commodities CSV niet inladen: {csv_path}")
+    # Detecteer separator op basis van eerste lijn
+    header_line = lines[0].strip()
+    if ";" in header_line:
+        sep = ";"
+    elif "\t" in header_line:
+        sep = "\t"
+    else:
+        sep = ","
+
+    # Parse header
+    headers = [h.strip().lower().replace(" ", "_") for h in header_line.split(sep)]
+
+    # Parse data rijen — sla rijen over met verkeerd aantal kolommen
+    rows = []
+    for line in lines[1:]:
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(sep)
+        if len(parts) == len(headers):
+            rows.append(parts)
+        elif len(parts) > len(headers):
+            # Te veel kolommen — neem enkel de eerste N
+            rows.append(parts[:len(headers)])
+        # Te weinig kolommen — opvullen met lege strings
+        elif len(parts) < len(headers):
+            parts += [""] * (len(headers) - len(parts))
+            rows.append(parts)
+
+    df = pd.DataFrame(rows, columns=headers)
+    df = df.apply(lambda col: col.str.strip() if col.dtype == "object" else col)
+    print(f"[Validator] CSV geladen: {len(df)} rijen, kolommen: {list(df.columns)}, sep='{sep}'")
+    return df
 
 
 def _search_csv(code: str) -> dict:
