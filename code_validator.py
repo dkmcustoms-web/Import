@@ -15,68 +15,81 @@ CLAUDE_MODEL = "claude-opus-4-5"
 
 @lru_cache(maxsize=1)
 def _load_commodities() -> pd.DataFrame:
-    """Load commodities CSV once and cache it."""
+    """Load commodities CSV — robust tegen slechte rijen en verschillende separators."""
     csv_path = os.environ.get("COMMODITIES_CSV_PATH", "commodities.csv")
-    df = pd.read_csv(csv_path, dtype=str)
-    # Normalise column names to lowercase
-    df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
-    return df
+
+    for sep in [",", ";", "\t"]:
+        for enc in ["utf-8", "latin-1", "cp1252"]:
+            try:
+                df = pd.read_csv(
+                    csv_path,
+                    dtype=str,
+                    sep=sep,
+                    encoding=enc,
+                    on_bad_lines="skip",
+                    engine="python",
+                )
+                if len(df.columns) >= 1:
+                    df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
+                    print(f"[Validator] CSV geladen: {len(df)} rijen, kolommen: {list(df.columns)}")
+                    return df
+            except Exception:
+                continue
+
+    raise RuntimeError(f"Kan commodities CSV niet inladen: {csv_path}")
 
 
 def _search_csv(code: str) -> dict:
     """
-    Look up a commodity code in the CSV.
+    Zoekt een GN-code op in de DKM commodities CSV.
+    Kolommen: gn_code | omschrijving | douanerecht | code_niveau | hoofdstuk | afdeling
     Returns { found: bool, exact: bool, candidates: list[dict], description: str }
     """
     df = _load_commodities()
 
-    code_clean = re.sub(r"\D", "", code)  # digits only
-
-    # Determine which column holds the code
-    code_cols = [c for c in df.columns if any(k in c for k in ["code", "gn", "hs", "commodity", "tariff"])]
-    if not code_cols:
-        code_cols = [df.columns[0]]  # fallback to first column
-
-    results = []
-    for col in code_cols:
-        mask = df[col].str.replace(r"\D", "", regex=True).str.startswith(code_clean)
-        hits = df[mask]
-        if not hits.empty:
-            results.append(hits)
-
-    if not results:
+    # Enkel cijfers van de gezochte code
+    code_clean = re.sub(r"\D", "", code)
+    if not code_clean:
         return {"found": False, "exact": False, "candidates": [], "description": ""}
 
-    combined = pd.concat(results).drop_duplicates()
+    # Kolom met de GN code — "gn_code" is de vaste naam in DKM CSV
+    code_col = "gn_code" if "gn_code" in df.columns else df.columns[0]
+    desc_col = "omschrijving" if "omschrijving" in df.columns else None
+    duty_col = "douanerecht" if "douanerecht" in df.columns else None
 
-    # Description column heuristic
-    desc_cols = [c for c in df.columns if any(k in c for k in ["desc", "omschr", "name", "text", "label"])]
-    desc_col = desc_cols[0] if desc_cols else (df.columns[1] if len(df.columns) > 1 else None)
+    # Zoek: gn_code begint met de gezochte digits
+    mask = (
+        df[code_col]
+        .fillna("")
+        .str.replace(r"\D", "", regex=True)
+        .str.startswith(code_clean)
+    )
+    hits = df[mask].copy()
+
+    if hits.empty:
+        return {"found": False, "exact": False, "candidates": [], "description": ""}
 
     candidates = []
-    for _, row in combined.iterrows():
-        entry = {}
-        for col in code_cols:
-            entry["code"] = row[col]
-        entry["description"] = row[desc_col] if desc_col else ""
-        # Extra fields (duty rate etc.)
-        for extra in ["duty_rate", "vat", "unit"]:
-            if extra in df.columns:
-                entry[extra] = row[extra]
+    for _, row in hits.iterrows():
+        entry = {
+            "code":        str(row[code_col]).strip(),
+            "description": str(row[desc_col]).strip() if desc_col else "",
+            "duty_rate":   str(row[duty_col]).strip() if duty_col else "",
+            "niveau":      str(row.get("code_niveau", "")).strip(),
+        }
         candidates.append(entry)
 
-    exact_code_clean = code_clean.ljust(8, "0")[:8]
+    # Exacte match = gn_code is exact gelijk aan gezochte code
     exact_match = any(
-        re.sub(r"\D", "", c.get("code", ""))[:8] == exact_code_clean
+        re.sub(r"\D", "", c["code"]) == code_clean
         for c in candidates
     )
 
-    description = candidates[0]["description"] if candidates else ""
     return {
-        "found": True,
-        "exact": exact_match,
-        "candidates": candidates[:5],
-        "description": description,
+        "found":       True,
+        "exact":       exact_match,
+        "candidates":  candidates[:5],
+        "description": candidates[0]["description"] if candidates else "",
     }
 
 
