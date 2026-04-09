@@ -29,7 +29,8 @@ COLUMNS = [
     "status","reply_sent","resolution_type","confirmed_code","manual_code","manual_desc","updated_at",
 ]
 
-MANUAL_COLUMNS = ["gn_code","omschrijving","added_at"]
+MANUAL_COLUMNS  = ["gn_code","omschrijving","added_at"]
+LEARNED_COLUMNS = ["gn_code","confirmed_by","confirmed_at","times_seen","last_seen","source_subject"]
 
 
 class SheetsQueue:
@@ -55,17 +56,32 @@ class SheetsQueue:
             self.ws_manual = sh.worksheet(MANUAL_SHEET)
         except gspread.WorksheetNotFound:
             self.ws_manual = sh.add_worksheet(title=MANUAL_SHEET, rows=500, cols=len(MANUAL_COLUMNS))
-
         if self.ws_manual.row_values(1) != MANUAL_COLUMNS:
             self.ws_manual.insert_row(MANUAL_COLUMNS, index=1)
+
+        # LearnedCodes tabblad
+        try:
+            self.ws_learned = sh.worksheet("LearnedCodes")
+            existing = self.ws_learned.row_values(1)
+            if existing != LEARNED_COLUMNS:
+                self.ws_learned.insert_row(LEARNED_COLUMNS, index=1)
+        except gspread.WorksheetNotFound:
+            self.ws_learned = sh.add_worksheet(title="LearnedCodes", rows=1000, cols=len(LEARNED_COLUMNS))
+            self.ws_learned.insert_row(LEARNED_COLUMNS, index=1)
+        except Exception as e:
+            print(f"[SheetsQueue] LearnedCodes init error: {e}")
+            self.ws_learned = None
 
     # ── Queue ────────────────────────────────────────────────────────────────
 
     def get_all_items(self) -> list[dict]:
-        records = self.ws.get_all_records()
-        # Filter header rij eruit als die per ongeluk als data wordt teruggegeven
-        valid = [r for r in records if str(r.get("row_id","")).strip().isdigit()]
-        return list(reversed(valid))
+        try:
+            records = self.ws.get_all_records()
+            valid = [r for r in records if str(r.get("row_id","")).strip().isdigit()]
+            return list(reversed(valid))
+        except Exception as e:
+            print(f"[SheetsQueue] get_all_items error: {e}")
+            return []
 
     def msg_id_exists(self, msg_id: str) -> bool:
         # Normaliseer: verwijder < > en strip whitespace voor vergelijking
@@ -132,3 +148,54 @@ class SheetsQueue:
 
     def get_manual_codes(self) -> list[dict]:
         return self.ws_manual.get_all_records()
+
+    # ── Learned codes ─────────────────────────────────────────────────────────
+
+    def get_learned_codes(self) -> list[dict]:
+        """Geeft alle geleerde codes terug."""
+        if not self.ws_learned:
+            return []
+        try:
+            return self.ws_learned.get_all_records()
+        except Exception as e:
+            print(f"[SheetsQueue] get_learned_codes error: {e}")
+            return []
+
+    def is_learned(self, gn_code: str) -> bool:
+        """Controleer of een code al geleerd is."""
+        if not self.ws_learned:
+            return False
+        try:
+            codes = self.ws_learned.col_values(1)
+            return str(gn_code).strip() in [str(c).strip() for c in codes]
+        except Exception:
+            return False
+
+    def learn_code(self, gn_code: str, subject: str = "", confirmed_by: str = "operator"):
+        """Sla een bevestigde code op of update times_seen."""
+        if not self.ws_learned:
+            return
+        try:
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            codes = self.ws_learned.col_values(1)
+        normalized = [str(c).strip() for c in codes]
+        gn_clean = str(gn_code).strip()
+
+        if gn_clean in normalized:
+            # Update times_seen en last_seen
+            row_num = normalized.index(gn_clean) + 1
+            times_col = LEARNED_COLUMNS.index("times_seen") + 1
+            last_col  = LEARNED_COLUMNS.index("last_seen") + 1
+            try:
+                current = int(self.ws_learned.cell(row_num, times_col).value or 0)
+            except Exception:
+                current = 0
+            self.ws_learned.update_cell(row_num, times_col, current + 1)
+            self.ws_learned.update_cell(row_num, last_col, now)
+        else:
+                # Nieuw record
+                self.ws_learned.append_row([
+                    gn_clean, confirmed_by, now, 1, now, subject[:100]
+                ], value_input_option="RAW")
+        except Exception as e:
+            print(f"[SheetsQueue] learn_code error: {e}")
