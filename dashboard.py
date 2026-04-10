@@ -16,6 +16,12 @@ for key in ["ANTHROPIC_API_KEY","SMTP_HOST","SMTP_PORT","SMTP_USER","SMTP_PASSWO
 
 st.markdown("""
 <style>
+/* Verberg Streamlit toolbar */
+header[data-testid="stHeader"] {visibility: hidden; height: 0;}
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+[data-testid="stToolbar"] {display: none !important;}
+.stDeployButton {display: none !important;}
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap');
 html,body,[class*="css"]{font-family:'DM Sans',sans-serif;}
 [data-testid="stSidebar"]{background:#1a1a2e!important;border-right:2px solid #3cceff33;}
@@ -96,7 +102,12 @@ with st.sidebar:
     st.markdown("---")
     if st.button("🔄 Refresh", use_container_width=True):
         st.cache_data.clear(); st.rerun()
-    auto_refresh = st.toggle("Auto-refresh (60s)", value=False)
+    auto_refresh = st.toggle("Auto-refresh (600s)", value=False)
+    st.markdown("---")
+    st.markdown("**⚙️ Settings**")
+    learn_setting = st.toggle("Remember confirmed codes", value=True, key="learn_toggle",
+        help="When enabled, confirmed codes are saved to LearnedCodes sheet after Approve & Send")
+    st.session_state["learn_codes"] = learn_setting
     st.markdown("---")
     st.markdown("<span style='color:#3cceff;font-size:0.75rem;font-family:monospace'>Commodity Checker v1.0</span>", unsafe_allow_html=True)
 
@@ -119,6 +130,14 @@ if check_btn:
             if not new_messages:
                 st.info("No new emails found with tag `#commoditycheckAI`.")
             else:
+                # Laad learned codes als lookup dict {proposed_or_confirmed_code: info}
+                try:
+                    learned_dict = queue.get_learned_lookup()
+                    if learned_dict:
+                        print(f"[Dashboard] Loaded {len(learned_dict)} learned code entries for cache lookup")
+                except Exception:
+                    learned_dict = {}
+
                 progress = st.progress(0, text="Validating…")
                 added = 0
                 for i, msg in enumerate(new_messages):
@@ -127,13 +146,17 @@ if check_btn:
                         print(f"[Dashboard] Skip duplicate: {msg['msg_id'][:50]}")
                         continue
                     try:
-                        result = validate(msg["body"], msg["subject"])
+                        result = validate(msg["body"], msg["subject"], learned_codes=learned_dict)
                     except Exception as e:
                         result = {"commodity_code":"ERROR","confirmed_code":"","code_found":"false",
                                   "ai_verdict":f"Validatie mislukt: {e}",
                                   "suggested_reply":"Automatic validation failed. A specialist will follow up.",
                                   "resolution_type":"error"}
                     status = "flagged" if result["code_found"] == "false" else "pending"
+                    # Als from cache: direct op pending zetten met label
+                    if result.get("from_cache"):
+                        status = "pending"
+                        print(f"[Dashboard] Cache hit — skipping Claude for {result.get('commodity_code')}")
                     queue.add_item({**msg, **result, "status": status})
                     added += 1
                 progress.empty()
@@ -167,7 +190,8 @@ def render_items(items, allow_actions=True):
         badge_cls, badge_lbl = badge_map.get(status, ("badge-pending", status))
         v_cls = "verdict-found" if ai_found=="true" else ("verdict-ambiguous" if ai_found=="ambiguous" else "verdict-notfound")
 
-        res_map = {"auto_resolved":'<span class="resolution-tag res-auto">🤖 Auto resolved</span>',
+        from_cache  = str(item.get("from_cache","")).lower() == "true"
+        res_map = {"auto_resolved":('<span class="resolution-tag res-auto">' + ('⚡ Cached' if from_cache else '🤖 Auto resolved') + '</span>'),
                    "existed":'<span class="resolution-tag res-existed">✅ Code existed</span>',
                    "not_found":'<span class="resolution-tag res-notfound">❌ Not found</span>',
                    "manual":'<span class="resolution-tag res-manual">✏️ Manually added</span>'}
@@ -260,26 +284,53 @@ def render_items(items, allow_actions=True):
                     st.markdown("---")
 
                 edited_reply = st.text_area("Reply", value=reply_body, height=180, key=f"reply_{row_id}")
-                c1, c2, c3 = st.columns([2, 1, 1])
-                with c1:
-                    if st.button("📤 Approve & Send", key=f"send_{row_id}", type="primary"):
-                        with st.spinner("Sending…"):
-                            ok = sender.send_reply(to=sender_mail, subject=f"Re: {subject}", body=edited_reply)
-                            if ok:
-                                res_type = "auto_resolved" if ai_found=="true" else ("manual" if ai_found=="false" else "existed")
-                                queue.update_status(row_id, "sent", reply_sent=edited_reply, resolution_type=res_type)
-                                st.success("✅ Sent!")
-                                st.cache_data.clear(); time.sleep(1); st.rerun()
-                            else:
-                                st.error("❌ Failed to send.")
-                with c2:
-                    if st.button("🚩 Flag", key=f"flag_{row_id}"):
-                        queue.update_status(row_id, "flagged")
-                        st.cache_data.clear(); time.sleep(0.5); st.rerun()
-                with c3:
-                    if st.button("🙈 Ignore", key=f"ignore_{row_id}"):
-                        queue.update_status(row_id, "ignored")
-                        st.cache_data.clear(); time.sleep(0.5); st.rerun()
+                # ── Confirmatiescherm ──────────────────────────────────────
+                confirm_key = f"confirm_{row_id}"
+                if st.session_state.get(confirm_key):
+                    st.warning("⚠️ Are you sure you want to send this reply?")
+                    cc1, cc2 = st.columns([1,1])
+                    with cc1:
+                        if st.button("✅ Yes, send it", key=f"confirm_yes_{row_id}", type="primary"):
+                            with st.spinner("Sending…"):
+                                ok = sender.send_reply(to=sender_mail, subject=f"Re: {subject}", body=edited_reply)
+                                if ok:
+                                    res_type = "auto_resolved" if ai_found=="true" else ("manual" if ai_found=="false" else "existed")
+                                    queue.update_status(row_id, "sent", reply_sent=edited_reply, resolution_type=res_type)
+                                    # Leer de code als setting aan staat
+                                    learn = st.session_state.get("learn_codes", True)
+                                    if learn and res_type in ("auto_resolved","existed"):
+                                        prop = code_asked  # originele voorgestelde code
+                                        conf = confirmed_code if confirmed_code else code_asked
+                                        queue.learn_code(
+                                            proposed_code=prop,
+                                            confirmed_code=conf,
+                                            subject=subject,
+                                        )
+                                        st.success(f"✅ Sent! {prop} → {conf} saved to LearnedCodes.")
+                                    else:
+                                        st.success("✅ Sent!")
+                                    st.session_state.pop(confirm_key, None)
+                                    st.cache_data.clear(); time.sleep(1); st.rerun()
+                                else:
+                                    st.error("❌ Failed to send.")
+                    with cc2:
+                        if st.button("✖ Cancel", key=f"confirm_no_{row_id}"):
+                            st.session_state.pop(confirm_key, None)
+                            st.rerun()
+                else:
+                    c1, c2, c3 = st.columns([2, 1, 1])
+                    with c1:
+                        if st.button("📤 Approve & Send", key=f"send_{row_id}", type="primary"):
+                            st.session_state[confirm_key] = True
+                            st.rerun()
+                    with c2:
+                        if st.button("🚩 Flag", key=f"flag_{row_id}"):
+                            queue.update_status(row_id, "flagged")
+                            st.cache_data.clear(); time.sleep(0.5); st.rerun()
+                    with c3:
+                        if st.button("🙈 Ignore", key=f"ignore_{row_id}"):
+                            queue.update_status(row_id, "ignored")
+                            st.cache_data.clear(); time.sleep(0.5); st.rerun()
         st.markdown("")
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
@@ -303,4 +354,4 @@ with tab_all:
     render_items(items_all, allow_actions=False)
 
 if auto_refresh:
-    time.sleep(60); st.rerun()
+    time.sleep(600); st.rerun()
