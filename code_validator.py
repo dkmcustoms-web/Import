@@ -145,10 +145,27 @@ Return ONLY the pairs in the format above, nothing else. If no codes found, retu
                 except Exception:
                     pass
 
+    # Sanity check: if all pairs have received == suggested, it means Claude
+    # returned each code separately instead of as a pair. Fix by grouping:
+    # first code = received, second code = suggested
+    if code_pairs and all(r == s for r, s in code_pairs) and len(code_pairs) >= 2:
+        fixed = []
+        for i in range(0, len(code_pairs), 2):
+            rec  = code_pairs[i][0]
+            sugg = code_pairs[i+1][0] if i+1 < len(code_pairs) else rec
+            fixed.append((rec, sugg))
+        code_pairs = fixed
+        decision_log.append(f"Fixed paired extraction: {code_pairs}")
+
     if not code_pairs:
-        # Fallback: extract all digits
-        all_raw = [re.sub(r"\D", "", c).strip() for c in re.findall(r"\b\d{8,10}\b", raw)]
-        code_pairs = [(c, c) for c in all_raw] if all_raw else [("UNKNOWN", "UNKNOWN")]
+        # Fallback: extract all digits from original email
+        all_raw = list(dict.fromkeys(re.findall(r"\b\d{8,10}\b", email_body + " " + email_subject)))
+        if len(all_raw) >= 2:
+            code_pairs = [(all_raw[i], all_raw[i+1]) for i in range(0, len(all_raw)-1, 2)]
+        elif all_raw:
+            code_pairs = [(all_raw[0], all_raw[0])]
+        else:
+            code_pairs = [("UNKNOWN", "UNKNOWN")]
 
     primary_code = code_pairs[0][0] if code_pairs else "UNKNOWN"
     all_codes    = list({c for pair in code_pairs for c in pair if c != "UNKNOWN"})
