@@ -93,79 +93,70 @@ def validate(email_body: str, email_subject: str, learned_codes: dict = None) ->
     client       = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     decision_log = []
 
-    # ── Step 1: Extract codes from email as pairs (received → suggested) ────────
-    decision_log.append("STEP 1: Extracting commodity code pairs from email.")
-    extract_resp = client.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=256,
-        messages=[{"role": "user", "content": f"""
-You are extracting commodity code verification requests from a customs email.
-The email contains codes that were RECEIVED from a client and codes that are SUGGESTED as correct alternatives.
+    # ── Step 1: Extract code pairs — regex first, Claude as fallback ───────────
+    decision_log.append("STEP 1: Extracting commodity code pairs.")
+    combined = (email_subject + " " + email_body).replace("\r", " ")
+    code_pairs = []
 
-Rules:
-- "Received X, suggesting Y" → RECEIVED: X | SUGGESTED: Y
-- "I have X but correct is Y" → RECEIVED: X | SUGGESTED: Y  
-- "X should be Y" → RECEIVED: X | SUGGESTED: Y
-- If only one code mentioned → RECEIVED: X | SUGGESTED: X
-- Multiple pairs = multiple lines
+    # Regex patterns
+    for m in re.finditer(r"received[\s:]+([\d]{6,10})[,\s]+suggest\w*[\s:]+([\d]{6,10})", combined, re.IGNORECASE):
+        code_pairs.append((m.group(1).strip(), m.group(2).strip()))
+    for m in re.finditer(r"[-\u2014]\s*([\d]{6,10})[,\s]+suggest\w*[\s:]+([\d]{6,10})", combined, re.IGNORECASE):
+        p = (m.group(1).strip(), m.group(2).strip())
+        if p not in code_pairs:
+            code_pairs.append(p)
+    for m in re.finditer(r"([\d]{6,10})\s*(?:->|\u2192|should be)\s*([\d]{6,10})", combined, re.IGNORECASE):
+        p = (m.group(1).strip(), m.group(2).strip())
+        if p not in code_pairs:
+            code_pairs.append(p)
 
-Example input: "Received 8413941000, suggesting 8413910090"
-Example output: RECEIVED: 8413941000 | SUGGESTED: 8413910090
-
-Example input: "Check: — Received 9403991000, suggesting 9403991090 — Received 9403999000, suggesting 9403999090"
-Example output:
-RECEIVED: 9403991000 | SUGGESTED: 9403991090
-RECEIVED: 9403999000 | SUGGESTED: 9403999090
-
-Now extract from this email:
-Subject: {email_subject}
-Body: {email_body[:2000]}
-
-Return ONLY the pairs in the format above, nothing else. If no codes found, return: UNKNOWN
-"""}],
-    )
-    raw = extract_resp.content[0].text.strip()
-    decision_log.append(f"Raw extraction: {raw[:200]}")
-
-    # Parse pairs
-    code_pairs = []  # list of (received, suggested)
-    if "UNKNOWN" in raw.upper() and "RECEIVED:" not in raw.upper():
-        code_pairs = [("UNKNOWN", "UNKNOWN")]
-    else:
-        for line in raw.split("\n"):
-            line = line.strip()
-            if "RECEIVED:" in line.upper() and "SUGGESTED:" in line.upper():
-                try:
-                    rec_part  = line.upper().split("RECEIVED:")[1].split("|")[0].strip()
-                    sugg_part = line.upper().split("SUGGESTED:")[1].strip()
-                    rec  = re.sub(r"\D", "", rec_part).strip()
-                    sugg = re.sub(r"\D", "", sugg_part).strip()
-                    if rec and sugg:
-                        code_pairs.append((rec, sugg))
-                except Exception:
-                    pass
-
-    # Sanity check: if all pairs have received == suggested, it means Claude
-    # returned each code separately instead of as a pair. Fix by grouping:
-    # first code = received, second code = suggested
-    if code_pairs and all(r == s for r, s in code_pairs) and len(code_pairs) >= 2:
-        fixed = []
-        for i in range(0, len(code_pairs), 2):
-            rec  = code_pairs[i][0]
-            sugg = code_pairs[i+1][0] if i+1 < len(code_pairs) else rec
-            fixed.append((rec, sugg))
-        code_pairs = fixed
-        decision_log.append(f"Fixed paired extraction: {code_pairs}")
-
+    # If regex failed — use Claude for extraction only
     if not code_pairs:
-        # Fallback: extract all digits from original email
-        all_raw = list(dict.fromkeys(re.findall(r"\b\d{8,10}\b", email_body + " " + email_subject)))
-        if len(all_raw) >= 2:
-            code_pairs = [(all_raw[i], all_raw[i+1]) for i in range(0, len(all_raw)-1, 2)]
-        elif all_raw:
-            code_pairs = [(all_raw[0], all_raw[0])]
+        try:
+            extract_resp = client.messages.create(
+                model=CLAUDE_MODEL, max_tokens=256,
+                messages=[{"role": "user", "content": f"""Extract commodity code pairs from this customs email.
+Each pair = received code (wrong) → suggested code (proposed as correct).
+Return ONLY in this format, one pair per line:
+RECEIVED: 1234567890 | SUGGESTED: 9876543210
+
+Examples:
+"Received 8413941000, suggesting 8413910090" → RECEIVED: 8413941000 | SUGGESTED: 8413910090
+"code 3921906000 should be 3921906090" → RECEIVED: 3921906000 | SUGGESTED: 3921906090
+
+Email subject: {email_subject}
+Email body: {email_body[:1500]}
+
+If no codes found: UNKNOWN"""}])
+            raw = extract_resp.content[0].text.strip()
+            decision_log.append(f"Claude extraction: {raw[:150]}")
+            for line in raw.split("\n"):
+                if "RECEIVED:" in line.upper() and "SUGGESTED:" in line.upper():
+                    try:
+                        rec  = re.sub(r"\D", "", line.upper().split("RECEIVED:")[1].split("|")[0]).strip()
+                        sugg = re.sub(r"\D", "", line.upper().split("SUGGESTED:")[1]).strip()
+                        if rec and sugg:
+                            code_pairs.append((rec, sugg))
+                    except Exception:
+                        pass
+        except Exception as e:
+            decision_log.append(f"Claude extraction failed: {e}")
+
+    # Last fallback: group all codes as pairs
+    if not code_pairs:
+        all_found = list(dict.fromkeys(re.findall(r"\b[\d]{8,10}\b", combined)))
+        if len(all_found) >= 2:
+            for i in range(0, len(all_found) - 1, 2):
+                code_pairs.append((all_found[i], all_found[i+1]))
+        elif len(all_found) == 1:
+            code_pairs = [(all_found[0], all_found[0])]
         else:
             code_pairs = [("UNKNOWN", "UNKNOWN")]
+
+    primary_code = code_pairs[0][0] if code_pairs else "UNKNOWN"
+    all_codes    = list({c for pair in code_pairs for c in pair if c != "UNKNOWN"})
+    decision_log.append(f"Code pairs extracted: {code_pairs}.")
+    print(f"[Validator] Code pairs: {code_pairs}")
 
     primary_code = code_pairs[0][0] if code_pairs else "UNKNOWN"
     all_codes    = list({c for pair in code_pairs for c in pair if c != "UNKNOWN"})
@@ -266,17 +257,28 @@ Return ONLY the pairs in the format above, nothing else. If no codes found, retu
             analysis_lines.append(f"Received {received}, suggested {suggested_input}: not found in TARIC database.")
             any_not_found = True
 
-    # Determine resolution type
-    if not csv_result["found"]:
-        code_found      = "false"
-        resolution_type = "not_found"
-    elif csv_result["exact"]:
+    # Determine resolution type based on actual validation
+    all_found_count   = sum(1 for r in all_results.values() if r["found"])
+    all_exact_count   = sum(1 for r in all_results.values() if r["exact"])
+    any_not_found_res = any(not r["found"] for r in all_results.values())
+
+    if all_exact_count == len(all_results) and all(
+        r.get("received","") == r.get("suggested_input","") for r in all_results.values()
+    ):
+        # All suggested codes confirmed exactly
         code_found      = "true"
         resolution_type = "auto_resolved"
+    elif all_found_count == len(all_results):
+        # All found but at least one was not exact (received != suggested)
+        all_suggested_exact = all(r["exact"] for r in all_results.values())
+        code_found      = "true" if all_suggested_exact else "ambiguous"
+        resolution_type = "auto_resolved" if all_suggested_exact else "existed"
+    elif all_found_count > 0:
+        code_found      = "ambiguous"
+        resolution_type = "existed"
     else:
-        any_found       = any(r["found"] for r in all_results.values())
-        code_found      = "ambiguous" if any_found else "false"
-        resolution_type = "existed"   if any_found else "not_found"
+        code_found      = "false"
+        resolution_type = "not_found"
 
     follow_up = "\nA DKM specialist will follow up for codes that could not be confirmed." if any_not_found else ""
     analysis  = " ".join(analysis_lines) + f" RESOLUTION_TYPE: {resolution_type}"
