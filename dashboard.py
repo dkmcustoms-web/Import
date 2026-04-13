@@ -268,11 +268,13 @@ def render_items(items, allow_actions=True):
             with st.expander("✏️ Review, manual code & reply", expanded=False):
                 if ai_found in ("false",""):
                     st.markdown("**🔎 Code not found — add manually:**")
-                    mc1, mc2 = st.columns([1,2])
+                    mc1, mc2, mc3 = st.columns([1, 1, 2])
                     with mc1:
-                        manual_code = st.text_input("GN Code", key=f"mcode_{row_id}", placeholder="e.g. 3926909700")
+                        asked_code = st.text_input("Code asked by client", key=f"masked_{row_id}", placeholder="e.g. 3926909700", value=str(code_asked_str))
                     with mc2:
-                        manual_desc = st.text_input("Description", key=f"mdesc_{row_id}", placeholder="e.g. Articles of plastics")
+                        manual_code = st.text_input("Correct GN Code", key=f"mcode_{row_id}", placeholder="e.g. 3926909790")
+                    with mc3:
+                        manual_desc = st.text_input("Description", key=f"mdesc_{row_id}", placeholder="e.g. Articles of plastics, not elsewhere specified")
                     if st.button("💾 Save", key=f"msave_{row_id}"):
                         if manual_code:
                             queue.add_manual_code(manual_code, manual_desc)
@@ -282,6 +284,16 @@ def render_items(items, allow_actions=True):
                         else:
                             st.warning("Please enter a GN code.")
                     st.markdown("---")
+
+                # Decision log tonen
+                decision_log = item.get("decision_log", "")
+                if decision_log:
+                    with st.expander("🔍 Decision log", expanded=False):
+                        steps = decision_log.split(" | ")
+                        for step in steps:
+                            if step.strip():
+                                color = "#2ecc71" if "EXACT MATCH" in step or "CACHE HIT" in step else ("#f35e40" if "NOT FOUND" in step else "#8899aa")
+                                st.markdown(f"<span style='font-family:monospace;font-size:0.8rem;color:{color};'>→ {step.strip()}</span>", unsafe_allow_html=True)
 
                 edited_reply = st.text_area("Reply", value=reply_body, height=180, key=f"reply_{row_id}")
                 # ── Confirmatiescherm ──────────────────────────────────────

@@ -1,6 +1,13 @@
 """
 code_validator.py
-Valideert commodity codes tegen de DKM TARIC CSV via Claude AI.
+Validates commodity codes against the DKM TARIC CSV.
+Steps:
+  1. Extract codes from email (Claude)
+  2. Check LearnedCodes cache → instant reply if found
+  3. Look up in TARIC CSV (exact match + 8-digit fallback)
+  4. Get goods description (Claude, max 15 words)
+  5. Build reply programmatically from CSV data only
+  6. Return full result with decision log
 """
 
 import os
@@ -8,72 +15,80 @@ import re
 import anthropic
 import pandas as pd
 
-CLAUDE_MODEL = "claude-opus-4-5"
+CLAUDE_MODEL = "claude-sonnet-4-5"
 
 
 def _load_commodities() -> pd.DataFrame:
-    """Laad taric_clean.csv — UTF-8, puntkomma-separator."""
     csv_path = os.environ.get("COMMODITIES_CSV_PATH", "taric_clean.csv")
-    print(f"[Validator] Laden van: {csv_path}")
+    print(f"[Validator] Loading CSV: {csv_path}")
     df = pd.read_csv(csv_path, dtype=str, sep=";", encoding="utf-8")
     df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
     df = df.fillna("")
-    print(f"[Validator] CSV geladen: {len(df)} rijen, kolommen: {list(df.columns)}")
+    print(f"[Validator] CSV loaded: {len(df)} rows, columns: {list(df.columns)}")
     return df
 
 
 def _search_code(code: str) -> dict:
     """
-    Zoeklogica:
-    1. Exacte match op volledige code → bevestigd
-    2. Geen exacte match → zoek op eerste 8 digits → stel alternatieven voor
-    3. Niets gevonden → not found
+    Step 1: exact match on full code
+    Step 2: if not found, search on first 8 digits and suggest best alternative
+    Step 3: not found at all
     """
-    df = _load_commodities()
+    df       = _load_commodities()
     code_clean = re.sub(r"\D", "", code).strip()
     if not code_clean:
-        return {"found": False, "exact": False, "suggested": "", "duty_rate": "", "alternatives": []}
+        return {"found": False, "exact": False, "suggested": "", "duty_rate": "", "alternatives": [], "log": f"Code '{code}' contains no digits."}
 
     code_col = "gn_code"
     duty_col = "douanerecht" if "douanerecht" in df.columns else None
     db_codes = df[code_col].fillna("").str.replace(r"\D", "", regex=True)
 
-    # Stap 1: exacte match
+    # Step 1: exact match
     exact_hits = df[db_codes == code_clean]
     if not exact_hits.empty:
         duty = str(exact_hits.iloc[0][duty_col]).strip() if duty_col else ""
-        print(f"[Validator] {code_clean} → EXACT MATCH, duty={duty}")
-        return {"found": True, "exact": True, "suggested": code_clean, "duty_rate": duty, "alternatives": []}
+        log  = f"Code {code_clean}: EXACT MATCH found in TARIC database. Duty rate: {duty}."
+        print(f"[Validator] {log}")
+        return {"found": True, "exact": True, "suggested": code_clean, "duty_rate": duty, "alternatives": [], "log": log}
 
-    # Stap 2: eerste 8 digits
-    prefix8 = code_clean[:8]
+    # Step 2: 8-digit prefix fallback
+    prefix8  = code_clean[:8]
     alt_hits = df[db_codes.str.startswith(prefix8)]
     if not alt_hits.empty:
-        seen = set()
-        alternatives = []
+        seen, alternatives = set(), []
         for _, row in alt_hits.iterrows():
             c = str(row[code_col]).strip()
             if c not in seen:
                 seen.add(c)
                 alternatives.append({"code": c, "duty_rate": str(row[duty_col]).strip() if duty_col else ""})
-        # Meest logische = hoogste suffix
-        alternatives_sorted = sorted(alternatives, key=lambda x: x["code"], reverse=True)
-        suggested = alternatives_sorted[0]["code"]
-        duty = alternatives_sorted[0]["duty_rate"]
-        print(f"[Validator] {code_clean} → niet gevonden, suggestie: {suggested}, alternatieven: {[a['code'] for a in alternatives]}")
-        return {"found": True, "exact": False, "suggested": suggested, "duty_rate": duty, "alternatives": [a["code"] for a in alternatives]}
+        alts_sorted = sorted(alternatives, key=lambda x: x["code"], reverse=True)
+        suggested   = alts_sorted[0]["code"]
+        duty        = alts_sorted[0]["duty_rate"]
+        alt_codes   = [a["code"] for a in alternatives]
+        log = (f"Code {code_clean}: NOT FOUND in TARIC database. "
+               f"Searched on 8-digit prefix '{prefix8}xx'. "
+               f"Found {len(alternatives)} alternative(s): {', '.join(alt_codes)}. "
+               f"Best suggestion: {suggested} (duty: {duty}).")
+        print(f"[Validator] {log}")
+        return {"found": True, "exact": False, "suggested": suggested, "duty_rate": duty, "alternatives": alt_codes, "log": log}
 
-    print(f"[Validator] {code_clean} → NIET GEVONDEN")
-    return {"found": False, "exact": False, "suggested": "", "duty_rate": "", "alternatives": []}
+    # Step 3: not found
+    log = f"Code {code_clean}: NOT FOUND in TARIC database. No alternatives found on prefix '{code_clean[:8]}'."
+    print(f"[Validator] {log}")
+    return {"found": False, "exact": False, "suggested": "", "duty_rate": "", "alternatives": [], "log": log}
 
 
-def validate(email_body: str, email_subject: str) -> dict:
+def validate(email_body: str, email_subject: str, learned_codes: dict = None) -> dict:
     """
-    Hoofdfunctie. Extraheert codes uit email, valideert ze, schrijft reply.
+    Main validation function.
+    learned_codes: dict {code: {confirmed_code, duty_rate, times_seen, ...}} for cache lookup.
+    Returns full result including decision_log for transparency.
     """
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    client       = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    decision_log = []
 
-    # Stap 1: extraheer alle codes uit de email
+    # ── Step 1: Extract codes from email ──────────────────────────────────────
+    decision_log.append("STEP 1: Extracting commodity codes from email.")
     extract_resp = client.messages.create(
         model=CLAUDE_MODEL,
         max_tokens=128,
@@ -87,118 +102,167 @@ Subject: {email_subject}
 Body: {email_body[:2000]}
 """}],
     )
-    raw_codes = extract_resp.content[0].text.strip()
-    all_codes = [re.sub(r"\D", "", c).strip() for c in raw_codes.split(",") if re.sub(r"\D", "", c).strip()]
+    raw_codes  = extract_resp.content[0].text.strip()
+    all_codes  = [re.sub(r"\D", "", c).strip() for c in raw_codes.split(",") if re.sub(r"\D", "", c).strip()]
     if not all_codes or all_codes == ["UNKNOWN"]:
         all_codes = ["UNKNOWN"]
     primary_code = all_codes[0]
-    print(f"[Validator] Codes gevonden in email: {all_codes}")
+    decision_log.append(f"Codes found in email: {', '.join(all_codes)}.")
+    print(f"[Validator] Codes found: {all_codes}")
 
-    # Stap 2: valideer elke code
-    results = {code: _search_code(code) for code in all_codes if code != "UNKNOWN"}
-
-    # Stap 3: bouw zoekresultaat samenvatting
-    search_summary = ""
-    for code, r in results.items():
-        if r["exact"]:
-            search_summary += f"- Code {code}: EXACT MATCH ✓ | Duty: {r['duty_rate']}\n"
-        elif r["found"]:
-            alts = ", ".join(r["alternatives"])
-            search_summary += f"- Code {code}: NIET GEVONDEN. Suggestie op basis van {code[:8]}xx: {r['suggested']} (duty: {r['duty_rate']}). Alle alternatieven: {alts}\n"
+    # ── Step 2: Check LearnedCodes cache ──────────────────────────────────────
+    decision_log.append("STEP 2: Checking LearnedCodes cache.")
+    if learned_codes and all_codes != ["UNKNOWN"]:
+        cached_hits = {code: learned_codes[code] for code in all_codes if code in learned_codes}
+        if cached_hits and len(cached_hits) == len(all_codes):
+            decision_log.append(f"CACHE HIT: All codes found in LearnedCodes database: {list(cached_hits.keys())}. No TARIC lookup needed.")
+            bullets = []
+            for code, info in cached_hits.items():
+                times = info.get("times_seen", 1)
+                duty  = info.get("duty_rate", "")
+                conf  = info.get("confirmed_code", code)
+                bullets.append(
+                    f"\u2022 {conf}  \u2014  Confirmed (previously validated {times}x)"
+                    + (f"  \u2014  Third country tariff: {duty}" if duty else "")
+                )
+            reply = (
+                "Dear Team Member,\n\n"
+                "I checked your question and below I provide you with my findings.\n\n"
+                + "\n".join(bullets)
+                + "\n\n---\n"
+                f"Decision log: {' | '.join(decision_log)}\n\n"
+                "Kind regards,\nDKM Customs \u2014 Commodity Validation Service"
+            )
+            return {
+                "commodity_code":  primary_code,
+                "confirmed_code":  cached_hits.get(primary_code, {}).get("confirmed_code", primary_code),
+                "code_found":      "true",
+                "ai_verdict":      f"Cache hit. {' '.join(decision_log)} RESOLUTION_TYPE: auto_resolved",
+                "suggested_reply": reply,
+                "resolution_type": "auto_resolved",
+                "from_cache":      True,
+                "decision_log":    " | ".join(decision_log),
+            }
+        elif cached_hits:
+            decision_log.append(f"Partial cache hit for: {list(cached_hits.keys())}. Continuing with TARIC lookup for remaining codes.")
         else:
-            search_summary += f"- Code {code}: NIET GEVONDEN in database\n"
-
-    # Stap 4: Claude schrijft analyse + reply
-    verdict_resp = client.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=800,
-        messages=[{"role": "user", "content": f"""
-You are a customs expert at DKM Customs (Antwerp).
-Declarants ask you to verify commodity codes. They propose a code — you confirm or correct it.
-
-Email subject: {email_subject}
-Email body: {email_body[:1500]}
-
-Database results:
-{search_summary}
-
-Instructions:
-1. Internal analysis (max 2 sentences). End with RESOLUTION_TYPE: auto_resolved|existed|not_found
-   - auto_resolved = exact match found
-   - existed = no exact match but alternative suggested
-   - not_found = nothing found at all
-
-2. Short professional reply using EXACTLY this structure:
-
-Dear Team Member,
-
-I checked your question and below I provide you with my findings.
-
-[For each code in the email, one bullet per code:]
-• [confirmed/suggested code]  —  [Confirmed / Suggested, code existed / Not found]  —  [short goods description, max 10 words]  —  Third country tariff: [duty rate]
-
-[Only if not found:] A DKM specialist will follow up for this item.
-
----
-AI Analysis: [copy your internal analysis here, exactly as written above]
-
-Kind regards,
-DKM Customs — Commodity Validation Service
-
-Rules:
-- NO website links
-- Use the confirmed or suggested code as the code in the bullet, NOT the wrong proposed code
-- Description: brief goods description based on HS chapter knowledge (e.g. "Articles of plastics, nes")
-- If multiple codes in email, list each on a separate bullet
-- Keep it short and scannable
-- Always include the AI Analysis line at the bottom
-
-Return format:
-ANALYSIS: <max 2 sentences ending with RESOLUTION_TYPE: ...>
-REPLY:
-<reply text>
-"""}],
-    )
-
-    raw = verdict_resp.content[0].text.strip()
-    analysis = ""
-    reply_body = ""
-    if "ANALYSIS:" in raw and "REPLY:" in raw:
-        analysis   = raw.split("ANALYSIS:")[1].split("REPLY:")[0].strip()
-        reply_body = raw.split("REPLY:")[1].strip()
+            decision_log.append("No cache hits. Proceeding with TARIC database lookup.")
     else:
-        analysis   = raw[:300]
-        reply_body = raw
+        decision_log.append("No LearnedCodes cache available or no valid codes. Proceeding with TARIC lookup.")
 
-    # Bepaal code_found en resolution_type
-    primary_result = results.get(primary_code, {"found": False, "exact": False})
-    if primary_result["exact"]:
+    # ── Step 3: Look up all codes in TARIC CSV ────────────────────────────────
+    decision_log.append("STEP 3: Looking up codes in TARIC CSV database.")
+    all_results = {}
+    for code in all_codes:
+        if code == "UNKNOWN":
+            all_results[code] = {"found": False, "exact": False, "suggested": "", "duty_rate": "", "alternatives": [], "log": "No code found in email."}
+        else:
+            all_results[code] = _search_code(code)
+        decision_log.append(all_results[code]["log"])
+
+    csv_result = all_results.get(primary_code, list(all_results.values())[0])
+
+    # ── Step 4: Get goods descriptions (Claude, descriptions only) ────────────
+    decision_log.append("STEP 4: Retrieving goods descriptions.")
+    codes_for_desc = {}
+    for code, result in all_results.items():
+        if result["exact"]:
+            codes_for_desc[code] = code
+        elif result["found"]:
+            codes_for_desc[code] = result.get("suggested", code)
+
+    descriptions = {}
+    if codes_for_desc:
+        desc_list = "\n".join([f"- {c}" for c in set(codes_for_desc.values())])
+        try:
+            desc_resp = client.messages.create(
+                model=CLAUDE_MODEL,
+                max_tokens=400,
+                messages=[{"role": "user", "content": f"""
+For each TARIC/GN code below, provide a clear goods description (max 15 words).
+Return ONLY in this exact format, one per line:
+CODE: description
+
+Codes:
+{desc_list}
+"""}],
+            )
+            for line in desc_resp.content[0].text.strip().split("\n"):
+                if ":" in line:
+                    parts = line.split(":", 1)
+                    descriptions[parts[0].strip()] = parts[1].strip()
+            decision_log.append(f"Descriptions retrieved for: {list(descriptions.keys())}.")
+        except Exception as e:
+            decision_log.append(f"Description lookup failed: {e}.")
+            print(f"[Validator] Description error: {e}")
+
+    # ── Step 5: Build reply programmatically ──────────────────────────────────
+    decision_log.append("STEP 5: Building reply from TARIC data only.")
+    bullets        = []
+    analysis_lines = []
+    any_not_found  = False
+
+    for code, result in all_results.items():
+        if result["exact"]:
+            duty = result.get("duty_rate", "")
+            desc = descriptions.get(code, "")
+            bullets.append(
+                f"\u2022 {code}  \u2014  Confirmed"
+                + (f"  \u2014  {desc}" if desc else "")
+                + (f"  \u2014  Third country tariff: {duty}" if duty else "")
+            )
+            analysis_lines.append(f"Code {code}: exact match in TARIC database.")
+        elif result["found"]:
+            suggested = result.get("suggested", "")
+            duty      = result.get("duty_rate", "")
+            desc      = descriptions.get(suggested, "")
+            bullets.append(
+                f"\u2022 {suggested}  \u2014  Suggested, code existed"
+                + (f"  \u2014  {desc}" if desc else "")
+                + (f"  \u2014  Third country tariff: {duty}" if duty else "")
+            )
+            analysis_lines.append(
+                f"Code {code} does not exist. Closest match: {suggested}"
+                + (f" (duty: {duty})" if duty else "") + "."
+            )
+        else:
+            bullets.append(f"\u2022 {code}  \u2014  Not found in TARIC database.")
+            analysis_lines.append(f"Code {code}: not found in TARIC database.")
+            any_not_found = True
+
+    # Determine resolution type
+    if not csv_result["found"]:
+        code_found      = "false"
+        resolution_type = "not_found"
+    elif csv_result["exact"]:
         code_found      = "true"
         resolution_type = "auto_resolved"
-    elif primary_result["found"]:
-        code_found      = "ambiguous"
-        resolution_type = "existed"
     else:
-        # Check of een andere code in de email wel gevonden werd
-        any_found = any(r["found"] for r in results.values())
+        any_found       = any(r["found"] for r in all_results.values())
         code_found      = "ambiguous" if any_found else "false"
         resolution_type = "existed"   if any_found else "not_found"
 
-    # Bepaal de bevestigde code
-    primary_result = results.get(primary_code, {})
-    if primary_result.get("exact"):
+    follow_up = "\nA DKM specialist will follow up for codes that could not be confirmed." if any_not_found else ""
+    analysis  = " ".join(analysis_lines) + f" RESOLUTION_TYPE: {resolution_type}"
+    decision_log.append(f"Final resolution: {resolution_type}.")
+
+    reply_body = (
+        "Dear Team Member,\n\n"
+        "I checked your question and below I provide you with my findings.\n\n"
+        + "\n".join(bullets)
+        + follow_up
+        + "\n\n---\n"
+        f"AI Analysis: {analysis}\n\n"
+        "Kind regards,\nDKM Customs \u2014 Commodity Validation Service"
+    )
+
+    # Confirmed code
+    if csv_result["exact"]:
         confirmed_code = primary_code
-    elif primary_result.get("found"):
-        confirmed_code = primary_result.get("suggested", "")
+    elif csv_result["found"]:
+        confirmed_code = csv_result.get("suggested", "")
     else:
-        # Zoek of een andere code in de email wel exact gevonden werd
         confirmed_code = ""
-        for code, r in results.items():
-            if r.get("exact"):
-                confirmed_code = code
-                break
-            elif r.get("found") and not confirmed_code:
-                confirmed_code = r.get("suggested", "")
 
     return {
         "commodity_code":  primary_code,
@@ -207,4 +271,6 @@ REPLY:
         "ai_verdict":      analysis,
         "suggested_reply": reply_body,
         "resolution_type": resolution_type,
+        "from_cache":      False,
+        "decision_log":    " | ".join(decision_log),
     }

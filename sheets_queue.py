@@ -23,11 +23,11 @@ COLUMNS = [
     "row_id", "msg_id", "sender_email", "subject", "received_at",
     "commodity_code", "code_found", "ai_verdict", "suggested_reply",
     "status", "reply_sent", "resolution_type", "confirmed_code",
-    "manual_code", "manual_desc", "updated_at",
+    "manual_code", "manual_desc", "decision_log", "updated_at",
 ]
 
 MANUAL_COLUMNS  = ["gn_code", "omschrijving", "added_at"]
-LEARNED_COLUMNS = ["gn_code", "confirmed_by", "confirmed_at", "times_seen", "last_seen", "source_subject"]
+LEARNED_COLUMNS = ["proposed_code", "confirmed_code", "confirmed_by", "confirmed_at", "times_seen", "last_seen", "source_subject", "duty_rate"]
 
 
 class SheetsQueue:
@@ -106,6 +106,7 @@ class SheetsQueue:
             item.get("confirmed_code", ""),
             "",
             "",
+            item.get("decision_log", "")[:500],
             now,
         ]
         self.ws.append_row(row, value_input_option="RAW")
@@ -157,17 +158,26 @@ class SheetsQueue:
         except Exception:
             return False
 
-    def learn_code(self, gn_code: str, subject: str = "", confirmed_by: str = "operator"):
+    def learn_code(self, proposed_code: str, confirmed_code: str, subject: str = "",
+                   confirmed_by: str = "operator", duty_rate: str = ""):
+        """
+        Sla zowel de originele (foute) code als de bevestigde code op.
+        Zodat volgende keer de foute code ook herkend wordt.
+        """
         if not self.ws_learned:
             return
         try:
-            now     = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            codes   = self.ws_learned.col_values(1)
-            normalized = [str(c).strip() for c in codes]
-            gn_clean   = str(gn_code).strip()
+            now            = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            proposed_clean = str(proposed_code).strip()
+            confirmed_clean= str(confirmed_code).strip()
 
-            if gn_clean in normalized:
-                row_num   = normalized.index(gn_clean) + 1
+            # Kolom 1 = proposed_code, gebruik die als lookup sleutel
+            col1 = self.ws_learned.col_values(1)
+            normalized = [str(c).strip() for c in col1]
+
+            if proposed_clean in normalized:
+                # Update times_seen en last_seen
+                row_num   = normalized.index(proposed_clean) + 1
                 times_col = LEARNED_COLUMNS.index("times_seen") + 1
                 last_col  = LEARNED_COLUMNS.index("last_seen") + 1
                 try:
@@ -178,8 +188,30 @@ class SheetsQueue:
                 self.ws_learned.update_cell(row_num, last_col, now)
             else:
                 self.ws_learned.append_row(
-                    [gn_clean, confirmed_by, now, 1, now, subject[:100]],
+                    [proposed_clean, confirmed_clean, confirmed_by, now, 1, now, subject[:100], duty_rate],
                     value_input_option="RAW"
                 )
         except Exception as e:
             print(f"[SheetsQueue] learn_code error: {e}")
+
+    def get_learned_lookup(self) -> dict:
+        """
+        Geeft een dict terug: {proposed_code: {confirmed_code, duty_rate, times_seen, ...}}
+        Zowel proposed als confirmed code worden als sleutel opgeslagen voor maximale herkenning.
+        """
+        if not self.ws_learned:
+            return {}
+        try:
+            records = self.ws_learned.get_all_records()
+            lookup = {}
+            for r in records:
+                prop = str(r.get("proposed_code","")).strip()
+                conf = str(r.get("confirmed_code","")).strip()
+                if prop:
+                    lookup[prop] = r
+                if conf and conf != prop:
+                    lookup[conf] = r  # ook de bevestigde code herkennen
+            return lookup
+        except Exception as e:
+            print(f"[SheetsQueue] get_learned_lookup error: {e}")
+            return {}
