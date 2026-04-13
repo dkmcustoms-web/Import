@@ -206,13 +206,18 @@ If no codes found: UNKNOWN"""}])
 
     # ── Step 3: Look up all codes in TARIC CSV ────────────────────────────────
     decision_log.append("STEP 3: Looking up codes in TARIC CSV database.")
+    # Build all_results keyed by RECEIVED code, validating the SUGGESTED code
     all_results = {}
-    for code in all_codes:
-        if code == "UNKNOWN":
-            all_results[code] = {"found": False, "exact": False, "suggested": "", "duty_rate": "", "alternatives": [], "log": "No code found in email."}
+    for received, suggested in code_pairs:
+        if suggested == "UNKNOWN" or not suggested:
+            result = {"found": False, "exact": False, "suggested": "", "duty_rate": "",
+                      "description": "", "alternatives": [], "log": "No code found in email."}
         else:
-            all_results[code] = _search_code(code)
-        decision_log.append(all_results[code]["log"])
+            result = _search_code(suggested)
+        result["received"]        = received
+        result["suggested_input"] = suggested
+        all_results[received]     = result
+        decision_log.append(result["log"])
 
     csv_result = all_results.get(primary_code, list(all_results.values())[0])
 
