@@ -99,17 +99,29 @@ def validate(email_body: str, email_subject: str, learned_codes: dict = None) ->
         model=CLAUDE_MODEL,
         max_tokens=256,
         messages=[{"role": "user", "content": f"""
-Extract commodity code pairs from this email. Each pair is: received code → suggested/correct code.
-Return ONLY in this exact format, one pair per line:
-RECEIVED: 1234567890 | SUGGESTED: 9876543210
+You are extracting commodity code verification requests from a customs email.
+The email contains codes that were RECEIVED from a client and codes that are SUGGESTED as correct alternatives.
 
-If only one code is mentioned with no pair, use:
-RECEIVED: 1234567890 | SUGGESTED: 1234567890
+Rules:
+- "Received X, suggesting Y" → RECEIVED: X | SUGGESTED: Y
+- "I have X but correct is Y" → RECEIVED: X | SUGGESTED: Y  
+- "X should be Y" → RECEIVED: X | SUGGESTED: Y
+- If only one code mentioned → RECEIVED: X | SUGGESTED: X
+- Multiple pairs = multiple lines
 
-If no code found, return: UNKNOWN
+Example input: "Received 8413941000, suggesting 8413910090"
+Example output: RECEIVED: 8413941000 | SUGGESTED: 8413910090
 
+Example input: "Check: — Received 9403991000, suggesting 9403991090 — Received 9403999000, suggesting 9403999090"
+Example output:
+RECEIVED: 9403991000 | SUGGESTED: 9403991090
+RECEIVED: 9403999000 | SUGGESTED: 9403999090
+
+Now extract from this email:
 Subject: {email_subject}
 Body: {email_body[:2000]}
+
+Return ONLY the pairs in the format above, nothing else. If no codes found, return: UNKNOWN
 """}],
     )
     raw = extract_resp.content[0].text.strip()
