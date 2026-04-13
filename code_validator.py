@@ -19,7 +19,7 @@ CLAUDE_MODEL = "claude-sonnet-4-5"
 
 
 def _load_commodities() -> pd.DataFrame:
-    csv_path = os.environ.get("COMMODITIES_CSV_PATH", "taric_clean.csv")
+    csv_path = os.environ.get("COMMODITIES_CSV_PATH", "commodity10digits_clean.csv")
     print(f"[Validator] Loading CSV: {csv_path}")
     df = pd.read_csv(csv_path, dtype=str, sep=";", encoding="utf-8")
     df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
@@ -43,13 +43,16 @@ def _search_code(code: str) -> dict:
     duty_col = "douanerecht" if "douanerecht" in df.columns else None
     db_codes = df[code_col].fillna("").str.replace(r"\D", "", regex=True)
 
+    desc_col  = "short_description" if "short_description" in df.columns else None
+
     # Step 1: exact match
     exact_hits = df[db_codes == code_clean]
     if not exact_hits.empty:
         duty = str(exact_hits.iloc[0][duty_col]).strip() if duty_col else ""
+        desc = str(exact_hits.iloc[0][desc_col]).strip() if desc_col else ""
         log  = f"Code {code_clean}: EXACT MATCH found in TARIC database. Duty rate: {duty}."
         print(f"[Validator] {log}")
-        return {"found": True, "exact": True, "suggested": code_clean, "duty_rate": duty, "alternatives": [], "log": log}
+        return {"found": True, "exact": True, "suggested": code_clean, "duty_rate": duty, "description": desc, "alternatives": [], "log": log}
 
     # Step 2: 8-digit prefix fallback
     prefix8  = code_clean[:8]
@@ -65,17 +68,20 @@ def _search_code(code: str) -> dict:
         suggested   = alts_sorted[0]["code"]
         duty        = alts_sorted[0]["duty_rate"]
         alt_codes   = [a["code"] for a in alternatives]
+        # Get description for suggested code
+        sugg_hits = df[db_codes == re.sub(r"\D", "", suggested)]
+        desc = str(sugg_hits.iloc[0][desc_col]).strip() if desc_col and not sugg_hits.empty else ""
         log = (f"Code {code_clean}: NOT FOUND in TARIC database. "
                f"Searched on 8-digit prefix '{prefix8}xx'. "
                f"Found {len(alternatives)} alternative(s): {', '.join(alt_codes)}. "
                f"Best suggestion: {suggested} (duty: {duty}).")
         print(f"[Validator] {log}")
-        return {"found": True, "exact": False, "suggested": suggested, "duty_rate": duty, "alternatives": alt_codes, "log": log}
+        return {"found": True, "exact": False, "suggested": suggested, "duty_rate": duty, "description": desc, "alternatives": alt_codes, "log": log}
 
     # Step 3: not found
     log = f"Code {code_clean}: NOT FOUND in TARIC database. No alternatives found on prefix '{code_clean[:8]}'."
     print(f"[Validator] {log}")
-    return {"found": False, "exact": False, "suggested": "", "duty_rate": "", "alternatives": [], "log": log}
+    return {"found": False, "exact": False, "suggested": "", "duty_rate": "", "description": "", "alternatives": [], "log": log}
 
 
 def validate(email_body: str, email_subject: str, learned_codes: dict = None) -> dict:
@@ -162,39 +168,16 @@ Body: {email_body[:2000]}
 
     csv_result = all_results.get(primary_code, list(all_results.values())[0])
 
-    # ── Step 4: Get goods descriptions (Claude, descriptions only) ────────────
-    decision_log.append("STEP 4: Retrieving goods descriptions.")
-    codes_for_desc = {}
-    for code, result in all_results.items():
-        if result["exact"]:
-            codes_for_desc[code] = code
-        elif result["found"]:
-            codes_for_desc[code] = result.get("suggested", code)
-
+    # ── Step 4: Get descriptions directly from CSV (no Claude needed) ──────────
+    decision_log.append("STEP 4: Retrieving goods descriptions from CSV.")
     descriptions = {}
-    if codes_for_desc:
-        desc_list = "\n".join([f"- {c}" for c in set(codes_for_desc.values())])
-        try:
-            desc_resp = client.messages.create(
-                model=CLAUDE_MODEL,
-                max_tokens=400,
-                messages=[{"role": "user", "content": f"""
-For each TARIC/GN code below, provide a clear goods description (max 15 words).
-Return ONLY in this exact format, one per line:
-CODE: description
-
-Codes:
-{desc_list}
-"""}],
-            )
-            for line in desc_resp.content[0].text.strip().split("\n"):
-                if ":" in line:
-                    parts = line.split(":", 1)
-                    descriptions[parts[0].strip()] = parts[1].strip()
-            decision_log.append(f"Descriptions retrieved for: {list(descriptions.keys())}.")
-        except Exception as e:
-            decision_log.append(f"Description lookup failed: {e}.")
-            print(f"[Validator] Description error: {e}")
+    for code, result in all_results.items():
+        desc = result.get("description", "")
+        if result["exact"]:
+            descriptions[code] = desc
+        elif result["found"]:
+            descriptions[result.get("suggested", "")] = desc
+    decision_log.append(f"Descriptions loaded from CSV for {len(descriptions)} code(s).")
 
     # ── Step 5: Build reply programmatically ──────────────────────────────────
     decision_log.append("STEP 5: Building reply from TARIC data only.")
