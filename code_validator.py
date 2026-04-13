@@ -12,6 +12,7 @@ Steps:
 
 import os
 import re
+import json
 import anthropic
 import pandas as pd
 
@@ -302,6 +303,32 @@ If no codes found: UNKNOWN"""}])
     else:
         confirmed_code = ""
 
+    # Build display pairs: [{received, confirmed, duty, status}]
+    display_pairs = []
+    for received, result in all_results.items():
+        suggested_input = result.get("suggested_input", received)
+        if result["exact"]:
+            display_pairs.append({
+                "received": received,
+                "confirmed": suggested_input,
+                "duty": result.get("duty_rate",""),
+                "status": "confirmed"
+            })
+        elif result["found"]:
+            display_pairs.append({
+                "received": received,
+                "confirmed": result.get("suggested",""),
+                "duty": result.get("duty_rate",""),
+                "status": "existed"
+            })
+        else:
+            display_pairs.append({
+                "received": received,
+                "confirmed": "",
+                "duty": "",
+                "status": "not_found"
+            })
+
     return {
         "commodity_code":  primary_code,
         "confirmed_code":  confirmed_code,
@@ -311,4 +338,5 @@ If no codes found: UNKNOWN"""}])
         "resolution_type": resolution_type,
         "from_cache":      False,
         "decision_log":    " | ".join(decision_log),
+        "display_pairs":   json.dumps(display_pairs),
     }

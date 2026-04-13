@@ -218,36 +218,40 @@ def render_items(items, allow_actions=True):
         else:
             confirmed_html = '<div class="code-block" style="border-color:#f35e4055;color:#f35e40;">❓ Niet bevestigd</div>'
 
-        # Bouw code paren uit de reply bullets
-        # Format in reply: • CONFIRMED — status — desc — duty
+        # Gebruik display_pairs uit sheet — exact wat de validator berekende
+        import json as _json
         code_asked_str = str(code_asked).strip() if code_asked else ""
+        raw_pairs = item.get("display_pairs", "")
+        display_pairs = []
+        if raw_pairs:
+            try:
+                display_pairs = _json.loads(str(raw_pairs))
+            except Exception:
+                pass
 
-        # Extraheer confirmed codes uit reply bullets
-        all_confirmed = _re.findall(r"\u2022\s*(\d{10})", str(reply_body)) if reply_body else []
-        if not all_confirmed:
-            all_confirmed = _re.findall(r"•\s*(\d{10})", str(reply_body)) if reply_body else []
-        if not all_confirmed and confirmed_code:
-            all_confirmed = [str(confirmed_code).strip()]
+        # Fallback als geen display_pairs in sheet
+        if not display_pairs:
+            conf = str(confirmed_code).strip() if confirmed_code else ""
+            display_pairs = [{"received": code_asked_str, "confirmed": conf,
+                               "duty": "", "status": "confirmed" if conf else "not_found"}]
 
-        # Extraheer received codes uit AI analyse
-        # "Received XXXX, suggested YYYY"
-        received_codes = _re.findall(r"Received\s+(\d{8,10})", str(ai_result)) if ai_result else []
-        if not received_codes:
-            received_codes = [code_asked_str] if code_asked_str else []
-
-        # Bouw rijen: één rij per paar received → confirmed
+        # Bouw HTML rijen — één rij per paar
+        status_styles = {
+            "confirmed":  ("border-color:#2ecc7155;color:#2ecc71;", "✅"),
+            "existed":    ("border-color:#3cceff55;color:#3cceff;", "✅"),
+            "not_found":  ("border-color:#f35e4055;color:#f35e40;", "❓"),
+        }
         code_rows_parts = []
-        max_pairs = max(len(received_codes), len(all_confirmed), 1)
-        for idx in range(max_pairs):
-            prop = received_codes[idx] if idx < len(received_codes) else (received_codes[0] if received_codes else "")
-            conf = all_confirmed[idx] if idx < len(all_confirmed) else ""
-            conf_style = "border-color:#2ecc7155;color:#2ecc71;" if conf else "border-color:#f35e4055;color:#f35e40;"
-            conf_icon  = "✅" if conf else "❓"
-            conf_text  = conf if conf else "Not confirmed"
+        for pair in display_pairs:
+            received  = pair.get("received", "")
+            confirmed = pair.get("confirmed", "")
+            pstatus   = pair.get("status", "not_found")
+            conf_style, conf_icon = status_styles.get(pstatus, status_styles["not_found"])
+            conf_text = confirmed if confirmed else "Not confirmed"
             code_rows_parts.append(
                 f'<div style="display:flex;gap:0.8rem;margin-top:0.4rem;align-items:center;">' +
-                f'<div class="code-block" style="min-width:160px;">📦 <strong>{prop}</strong></div>' +
-                f'<div class="code-block" style="{conf_style}min-width:160px;">{conf_icon} <strong>{conf_text}</strong></div>' +
+                f'<div class="code-block" style="min-width:150px;">📦 <strong>{received}</strong></div>' +
+                f'<div class="code-block" style="{conf_style}min-width:150px;">{conf_icon} <strong>{conf_text}</strong></div>' +
                 f'</div>'
             )
         res_div = f'<div style="margin-top:6px;">{res_html}</div>' if res_html else ""

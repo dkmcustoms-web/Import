@@ -23,7 +23,7 @@ COLUMNS = [
     "row_id", "msg_id", "sender_email", "subject", "received_at",
     "commodity_code", "code_found", "ai_verdict", "suggested_reply",
     "status", "reply_sent", "resolution_type", "confirmed_code",
-    "manual_code", "manual_desc", "decision_log", "updated_at",
+    "manual_code", "manual_desc", "decision_log", "display_pairs", "updated_at",
 ]
 
 MANUAL_COLUMNS  = ["gn_code", "omschrijving", "added_at"]
@@ -107,6 +107,7 @@ class SheetsQueue:
             "",
             "",
             item.get("decision_log", "")[:500],
+            item.get("display_pairs", ""),
             now,
         ]
         self.ws.append_row(row, value_input_option="RAW")
