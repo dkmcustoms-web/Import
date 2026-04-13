@@ -93,28 +93,55 @@ def validate(email_body: str, email_subject: str, learned_codes: dict = None) ->
     client       = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     decision_log = []
 
-    # ── Step 1: Extract codes from email ──────────────────────────────────────
-    decision_log.append("STEP 1: Extracting commodity codes from email.")
+    # ── Step 1: Extract codes from email as pairs (received → suggested) ────────
+    decision_log.append("STEP 1: Extracting commodity code pairs from email.")
     extract_resp = client.messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=128,
+        max_tokens=256,
         messages=[{"role": "user", "content": f"""
-Extract ALL commodity/GN/HS codes mentioned in this email.
-Return ONLY the numeric codes, comma-separated (e.g. "3926909790,3926909799").
-Include both proposed codes AND alternative codes mentioned.
-If no code found, return "UNKNOWN".
+Extract commodity code pairs from this email. Each pair is: received code → suggested/correct code.
+Return ONLY in this exact format, one pair per line:
+RECEIVED: 1234567890 | SUGGESTED: 9876543210
+
+If only one code is mentioned with no pair, use:
+RECEIVED: 1234567890 | SUGGESTED: 1234567890
+
+If no code found, return: UNKNOWN
 
 Subject: {email_subject}
 Body: {email_body[:2000]}
 """}],
     )
-    raw_codes  = extract_resp.content[0].text.strip()
-    all_codes  = [re.sub(r"\D", "", c).strip() for c in raw_codes.split(",") if re.sub(r"\D", "", c).strip()]
-    if not all_codes or all_codes == ["UNKNOWN"]:
-        all_codes = ["UNKNOWN"]
-    primary_code = all_codes[0]
-    decision_log.append(f"Codes found in email: {', '.join(all_codes)}.")
-    print(f"[Validator] Codes found: {all_codes}")
+    raw = extract_resp.content[0].text.strip()
+    decision_log.append(f"Raw extraction: {raw[:200]}")
+
+    # Parse pairs
+    code_pairs = []  # list of (received, suggested)
+    if "UNKNOWN" in raw.upper() and "RECEIVED:" not in raw.upper():
+        code_pairs = [("UNKNOWN", "UNKNOWN")]
+    else:
+        for line in raw.split("\n"):
+            line = line.strip()
+            if "RECEIVED:" in line.upper() and "SUGGESTED:" in line.upper():
+                try:
+                    rec_part  = line.upper().split("RECEIVED:")[1].split("|")[0].strip()
+                    sugg_part = line.upper().split("SUGGESTED:")[1].strip()
+                    rec  = re.sub(r"\D", "", rec_part).strip()
+                    sugg = re.sub(r"\D", "", sugg_part).strip()
+                    if rec and sugg:
+                        code_pairs.append((rec, sugg))
+                except Exception:
+                    pass
+
+    if not code_pairs:
+        # Fallback: extract all digits
+        all_raw = [re.sub(r"\D", "", c).strip() for c in re.findall(r"\b\d{8,10}\b", raw)]
+        code_pairs = [(c, c) for c in all_raw] if all_raw else [("UNKNOWN", "UNKNOWN")]
+
+    primary_code = code_pairs[0][0] if code_pairs else "UNKNOWN"
+    all_codes    = list({c for pair in code_pairs for c in pair if c != "UNKNOWN"})
+    decision_log.append(f"Code pairs found: {code_pairs}.")
+    print(f"[Validator] Code pairs: {code_pairs}")
 
     # ── Step 2: Check LearnedCodes cache ──────────────────────────────────────
     decision_log.append("STEP 2: Checking LearnedCodes cache.")
@@ -168,16 +195,8 @@ Body: {email_body[:2000]}
 
     csv_result = all_results.get(primary_code, list(all_results.values())[0])
 
-    # ── Step 4: Get descriptions directly from CSV (no Claude needed) ──────────
-    decision_log.append("STEP 4: Retrieving goods descriptions from CSV.")
-    descriptions = {}
-    for code, result in all_results.items():
-        desc = result.get("description", "")
-        if result["exact"]:
-            descriptions[code] = desc
-        elif result["found"]:
-            descriptions[result.get("suggested", "")] = desc
-    decision_log.append(f"Descriptions loaded from CSV for {len(descriptions)} code(s).")
+    # ── Step 4: Descriptions already in results from CSV ────────────────────────
+    decision_log.append("STEP 4: Descriptions loaded from CSV in Step 3.")
 
     # ── Step 5: Build reply programmatically ──────────────────────────────────
     decision_log.append("STEP 5: Building reply from TARIC data only.")
@@ -185,32 +204,37 @@ Body: {email_body[:2000]}
     analysis_lines = []
     any_not_found  = False
 
-    for code, result in all_results.items():
+    for received, result in all_results.items():
+        suggested_input = result.get("suggested_input", received)
         if result["exact"]:
             duty = result.get("duty_rate", "")
-            desc = descriptions.get(code, "")
+            desc = result.get("description", "")
+            # Suggested = confirmed: toon bevestigd
+            status_str = "Confirmed" if suggested_input == received else "Suggested, confirmed"
             bullets.append(
-                f"\u2022 {code}  \u2014  Confirmed"
-                + (f"  \u2014  {desc}" if desc else "")
-                + (f"  \u2014  Third country tariff: {duty}" if duty else "")
-            )
-            analysis_lines.append(f"Code {code}: exact match in TARIC database.")
-        elif result["found"]:
-            suggested = result.get("suggested", "")
-            duty      = result.get("duty_rate", "")
-            desc      = descriptions.get(suggested, "")
-            bullets.append(
-                f"\u2022 {suggested}  \u2014  Suggested, code existed"
+                f"\u2022 {suggested_input}  \u2014  {status_str}"
                 + (f"  \u2014  {desc}" if desc else "")
                 + (f"  \u2014  Third country tariff: {duty}" if duty else "")
             )
             analysis_lines.append(
-                f"Code {code} does not exist. Closest match: {suggested}"
+                f"Received {received}, suggested {suggested_input}: exact match in TARIC database. Duty: {duty}."
+            )
+        elif result["found"]:
+            best     = result.get("suggested", "")
+            duty     = result.get("duty_rate", "")
+            desc     = result.get("description", "")
+            bullets.append(
+                f"\u2022 {best}  \u2014  Suggested, code existed"
+                + (f"  \u2014  {desc}" if desc else "")
+                + (f"  \u2014  Third country tariff: {duty}" if duty else "")
+            )
+            analysis_lines.append(
+                f"Received {received}, suggested {suggested_input}: not found. Best alternative: {best}"
                 + (f" (duty: {duty})" if duty else "") + "."
             )
         else:
-            bullets.append(f"\u2022 {code}  \u2014  Not found in TARIC database.")
-            analysis_lines.append(f"Code {code}: not found in TARIC database.")
+            bullets.append(f"\u2022 {suggested_input}  \u2014  Not found in TARIC database.")
+            analysis_lines.append(f"Received {received}, suggested {suggested_input}: not found in TARIC database.")
             any_not_found = True
 
     # Determine resolution type
@@ -239,9 +263,9 @@ Body: {email_body[:2000]}
         "Kind regards,\nDKM Customs \u2014 Commodity Validation Service"
     )
 
-    # Confirmed code
+    # Confirmed code = the validated code
     if csv_result["exact"]:
-        confirmed_code = primary_code
+        confirmed_code = csv_result.get("suggested_input", primary_code)
     elif csv_result["found"]:
         confirmed_code = csv_result.get("suggested", "")
     else:
