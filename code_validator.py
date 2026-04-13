@@ -285,12 +285,34 @@ If no codes found: UNKNOWN"""}])
     analysis  = " ".join(analysis_lines) + f" RESOLUTION_TYPE: {resolution_type}"
     decision_log.append(f"Final resolution: {resolution_type}.")
 
+    # Compact reply using display_pairs
+    compact_lines = []
+    for received, result in all_results.items():
+        suggested_input = result.get("suggested_input", received)
+        if result["exact"]:
+            duty = result.get("duty_rate","")
+            compact_lines.append(
+                f"Commodity {received} received  \u2014  {suggested_input} confirmed"
+                + (f"  \u2014  Third country tariff: {duty}" if duty else "")
+            )
+        elif result["found"]:
+            best = result.get("suggested","")
+            duty = result.get("duty_rate","")
+            compact_lines.append(
+                f"Commodity {received} received  \u2014  {best} suggested, code existed"
+                + (f"  \u2014  Third country tariff: {duty}" if duty else "")
+            )
+        else:
+            compact_lines.append(
+                f"Commodity {received} received  \u2014  Not found in TARIC database"
+            )
+
     reply_body = (
         "Dear Team Member,\n\n"
         "I checked your question and below I provide you with my findings.\n\n"
-        + "\n".join(bullets)
-        + follow_up
-        + "\n\n---\n"
+        + "\n".join(compact_lines)
+        + (follow_up if any_not_found else "")
+        + "\n\n"
         f"AI Analysis: {analysis}\n\n"
         "Kind regards,\nDKM Customs \u2014 Commodity Validation Service"
     )
