@@ -218,24 +218,28 @@ def render_items(items, allow_actions=True):
         else:
             confirmed_html = '<div class="code-block" style="border-color:#f35e4055;color:#f35e40;">❓ Niet bevestigd</div>'
 
-        # Extraheer alle 10-cijferige codes uit de reply bullets
+        # Bouw code paren uit de reply bullets
+        # Format in reply: • CONFIRMED — status — desc — duty
         code_asked_str = str(code_asked).strip() if code_asked else ""
-        # Haal alle confirmed codes uit reply (bullet lines: • 1234567890 — ...)
-        all_confirmed = _re.findall(r"[•\-]\s*(\d{10})\s+[\u2014\-]", str(reply_body)) if reply_body else []
+
+        # Extraheer confirmed codes uit reply bullets
+        all_confirmed = _re.findall(r"\u2022\s*(\d{10})", str(reply_body)) if reply_body else []
         if not all_confirmed:
-            # Fallback: alle 10-cijferige codes in reply
-            all_confirmed = _re.findall(r"\b(\d{10})\b", str(reply_body)) if reply_body else []
+            all_confirmed = _re.findall(r"•\s*(\d{10})", str(reply_body)) if reply_body else []
         if not all_confirmed and confirmed_code:
-            all_confirmed = [confirmed_code]
+            all_confirmed = [str(confirmed_code).strip()]
 
-        # Proposed codes (enkel primaire code beschikbaar)
-        proposed_codes = [code_asked_str] if code_asked_str else []
+        # Extraheer received codes uit AI analyse
+        # "Received XXXX, suggested YYYY"
+        received_codes = _re.findall(r"Received\s+(\d{8,10})", str(ai_result)) if ai_result else []
+        if not received_codes:
+            received_codes = [code_asked_str] if code_asked_str else []
 
-        # Bouw HTML rijen
+        # Bouw rijen: één rij per paar received → confirmed
         code_rows_parts = []
-        max_len = max(len(proposed_codes), len(all_confirmed), 1)
-        for idx in range(max_len):
-            prop = proposed_codes[idx] if idx < len(proposed_codes) else proposed_codes[0] if proposed_codes else ""
+        max_pairs = max(len(received_codes), len(all_confirmed), 1)
+        for idx in range(max_pairs):
+            prop = received_codes[idx] if idx < len(received_codes) else (received_codes[0] if received_codes else "")
             conf = all_confirmed[idx] if idx < len(all_confirmed) else ""
             conf_style = "border-color:#2ecc7155;color:#2ecc71;" if conf else "border-color:#f35e4055;color:#f35e40;"
             conf_icon  = "✅" if conf else "❓"
