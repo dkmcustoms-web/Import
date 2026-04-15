@@ -252,6 +252,66 @@ If no codes found: UNKNOWN"""}])
                         f"Please verify manually."
                     )
 
+        # ── Context check: does email description match a specific alternative? ──
+        # If the suggested code was flagged as specific (sluitpost rule) but
+        # the email body contains keywords matching a specific alternative's
+        # description, override the sluitpost suggestion.
+        if result.get("warning","").startswith("WARNING: Code") and result.get("alternatives"):
+            # Use Claude to check if email context justifies a specific alternative
+            try:
+                df_check = _load_commodities()
+                # Build list of alternatives with descriptions
+                alt_list = []
+                for alt_code in result["alternatives"]:
+                    alt_hits = df_check[df_check["gn_code"].str.strip() == str(alt_code).strip()]
+                    if not alt_hits.empty:
+                        row = alt_hits.iloc[0]
+                        full_desc = str(row.get("full_description","") or row.get("short_description",""))
+                        alt_list.append(f"{alt_code}: {full_desc[-120:]}")
+
+                if alt_list:
+                    context_resp = client.messages.create(
+                        model=CLAUDE_MODEL, max_tokens=150,
+                        messages=[{"role": "user", "content": f"""
+A declarant provided this context in their email:
+"{email_body[:500]}"
+
+Available TARIC codes for this product:
+{chr(10).join(alt_list)}
+
+Question: Based on the declarant's description, does the email context clearly justify 
+using a specific code other than the general "Other" category?
+If YES: reply with just the code number (e.g. "3926909705")
+If NO or UNCERTAIN: reply with just "NO"
+"""}])
+                    claude_pick = context_resp.content[0].text.strip()
+                    # Extract code from response
+                    code_match = re.search(r"(\d{10})", claude_pick)
+                    if code_match and "NO" not in claude_pick.upper():
+                        picked_code = code_match.group(1)
+                        picked_hits = df_check[df_check["gn_code"].str.strip() == picked_code]
+                        if not picked_hits.empty and picked_code != result["suggested"]:
+                            old_suggestion = result["suggested"]
+                            row = picked_hits.iloc[0]
+                            result["suggested"]   = picked_code
+                            result["duty_rate"]   = str(row.get("third_country_duty","")).strip()
+                            result["description"] = str(row.get("short_description","")).strip()
+                            result["warning"]     = ""
+                            result["exact"]       = True
+                            result["log"] = (
+                                f"Context match via Claude: email context justifies '{picked_code}'. "
+                                f"Sluitpost '{old_suggestion}' overridden. "
+                                f"Declarant provided specific context justifying this code."
+                            )
+                            decision_log.append(f"CONTEXT OVERRIDE: {result['log']}")
+                            print(f"[Validator] Context override by Claude: {picked_code}")
+                        else:
+                            decision_log.append("Context check: Claude found no specific match — keeping sluitpost.")
+                    else:
+                        decision_log.append("Context check: Claude replied NO — keeping sluitpost suggestion.")
+            except Exception as e:
+                decision_log.append(f"Context check failed: {e}")
+
         result["received"]        = received
         result["suggested_input"] = suggested
         all_results[received]     = result
