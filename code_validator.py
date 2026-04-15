@@ -225,15 +225,26 @@ If no codes found: UNKNOWN"""}])
             decision_log.append(f"CACHE HIT: All codes found in LearnedCodes database: {list(cached_hits.keys())}. No TARIC lookup needed.")
             compact_lines = []
             display_pairs = []
+            has_specific = False
             for received, suggested in code_pairs:
                 info  = cached_hits.get(received) or cached_hits.get(suggested) or {}
                 conf  = info.get("confirmed_code", suggested)
                 duty  = info.get("duty_rate", "")
                 times = info.get("times_seen", 1)
+                last2 = str(conf)[-2:] if len(str(conf)) >= 2 else ""
+                if last2 in SPECIFIC_ENDINGS:
+                    has_specific = True
+                    decision_log.append(f"WARNING: cached code {conf} ends on specific subheading \'{last2}\'. Sluitpost may be more appropriate.")
                 compact_lines.append(
                     f"Commodity {received} received  \u2014  {conf} confirmed (previously validated {times}x)"
                     + (f"  \u2014  Third country tariff: {duty}" if duty else "")
                 )
+                if last2 in SPECIFIC_ENDINGS:
+                    compact_lines.append(
+                        f"  \u26a0 Note: Code {conf} is a specific subheading (ending \'{last2}\' indicates a special application). "
+                        f"Unless the goods specifically match this description, the residual \'Other\' code is more likely correct. "
+                        f"Please verify with the customer before sending."
+                    )
                 display_pairs.append({"received": received, "confirmed": conf, "duty": duty, "description": "", "status": "confirmed"})
             reply = (
                 "Dear Team Member,\n\n"
@@ -246,10 +257,10 @@ If no codes found: UNKNOWN"""}])
             return {
                 "commodity_code":  primary_code,
                 "confirmed_code":  cached_hits.get(primary_code, {}).get("confirmed_code", primary_code),
-                "code_found":      "true",
-                "ai_verdict":      f"Cache hit. {' '.join(decision_log)} RESOLUTION_TYPE: auto_resolved",
+                "code_found":      "ambiguous" if has_specific else "true",
+                "ai_verdict":      f"Cache hit. {' '.join(decision_log)} RESOLUTION_TYPE: {'existed' if has_specific else 'auto_resolved'}",
                 "suggested_reply": reply,
-                "resolution_type": "auto_resolved",
+                "resolution_type": "existed" if has_specific else "auto_resolved",
                 "from_cache":      True,
                 "decision_log":    " | ".join(decision_log),
                 "display_pairs":   json.dumps(display_pairs),
