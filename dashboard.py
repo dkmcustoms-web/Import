@@ -171,10 +171,11 @@ if _page == "⚙️ Confirmations":
                 if not _il:
                     queue.learn_code(proposed_code=_prop,confirmed_code=_conf,subject=_src,duty_rate=_duty)
                 queue.set_auto_approve(_prop,_nv)
-                st.cache_data.clear()
-                st.success(f"{'✅ Enabled' if _nv else '⭕ Disabled'}: {_prop} → {_conf}")
-                st.rerun()
-    st.stop()
+                action = "✅ Enabled" if _nv else "⭕ Disabled"
+                st.toast(f"{action}: {_prop} → {_conf}")
+    st.markdown("---")
+    st.caption("Changes are saved immediately to the LearnedCodes sheet.")
+
 
 # ── Poll sectie ────────────────────────────────────────────────────────────────
 c1, c2 = st.columns([3,1])
