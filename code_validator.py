@@ -427,16 +427,18 @@ If NO or UNCERTAIN: reply with just "NO"
     # Determine resolution type based on actual validation
     all_found_count   = sum(1 for r in all_results.values() if r["found"])
     all_exact_count   = sum(1 for r in all_results.values() if r["exact"])
-    any_not_found_res = any(not r["found"] for r in all_results.values())
+    any_warnings      = any(r.get("warning","") for r in all_results.values())
 
-    if all_exact_count == len(all_results) and all(
+    if any_warnings:
+        # Warnings present (specific subheading or prefix mismatch) — needs review
+        code_found      = "ambiguous"
+        resolution_type = "existed"
+    elif all_exact_count == len(all_results) and all(
         r.get("received","") == r.get("suggested_input","") for r in all_results.values()
     ):
-        # All suggested codes confirmed exactly
         code_found      = "true"
         resolution_type = "auto_resolved"
     elif all_found_count == len(all_results):
-        # All found but at least one was not exact (received != suggested)
         all_suggested_exact = all(r["exact"] for r in all_results.values())
         code_found      = "true" if all_suggested_exact else "ambiguous"
         resolution_type = "auto_resolved" if all_suggested_exact else "existed"
@@ -461,14 +463,22 @@ If NO or UNCERTAIN: reply with just "NO"
             sluitpost = result.get("sluitpost","")
             if warning and sluitpost:
                 compact_lines.append(
-                    f"Commodity {received} received  \u2014  {suggested_input} confirmed (specific subheading)"
+                    f"Commodity {received} received  \u2014  {suggested_input} confirmed (specific subheading — verify)"
                     + (f"  \u2014  Third country tariff: {duty}" if duty else "")
                 )
                 compact_lines.append(f"  \u26a0 {warning}")
+                analysis_lines.append(
+                    f"Received {received}, suggested {suggested_input}: exact match but SPECIFIC subheading "
+                    f"(ending '{suggested_input[-2:]}' indicates special application). "
+                    f"Sluitpost alternative: {sluitpost}. Duty: {duty}. Verify with customer."
+                )
             else:
                 compact_lines.append(
                     f"Commodity {received} received  \u2014  {suggested_input} confirmed"
                     + (f"  \u2014  Third country tariff: {duty}" if duty else "")
+                )
+                analysis_lines.append(
+                    f"Received {received}, suggested {suggested_input}: exact match in TARIC database. Duty: {duty}."
                 )
         elif result["found"]:
             best    = result.get("suggested","")
