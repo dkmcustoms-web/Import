@@ -153,11 +153,32 @@ if check_btn:
                                   "suggested_reply":"Automatic validation failed. A specialist will follow up.",
                                   "resolution_type":"error"}
                     status = "flagged" if result["code_found"] == "false" else "pending"
-                    # Als from cache: direct op pending zetten met label
-                    if result.get("from_cache"):
-                        status = "pending"
-                        print(f"[Dashboard] Cache hit — skipping Claude for {result.get('commodity_code')}")
-                    queue.add_item({**msg, **result, "status": status})
+                    # Check auto-approve voor cache hits
+                    auto_sent = False
+                    if result.get("from_cache") and learned_dict:
+                        primary = result.get("commodity_code","")
+                        learned_entry = learned_dict.get(primary, {})
+                        if str(learned_entry.get("auto_approve","no")).strip().lower() == "yes":
+                            # Auto-send zonder menselijke review
+                            reply_text = result.get("suggested_reply","")
+                            ok = sender.send_reply(
+                                to=msg["sender_email"],
+                                subject=f"Re: {msg['subject']}",
+                                body=reply_text,
+                            )
+                            if ok:
+                                status = "sent"
+                                result["resolution_type"] = "auto_resolved"
+                                queue.add_item({**msg, **result, "status": "sent"})
+                                # Update learned code counter
+                                conf = learned_entry.get("confirmed_code", primary)
+                                queue.learn_code(proposed_code=primary, confirmed_code=conf,
+                                                 subject=msg["subject"])
+                                auto_sent = True
+                                print(f"[Dashboard] Auto-approved and sent for {primary}")
+
+                    if not auto_sent:
+                        queue.add_item({**msg, **result, "status": status})
                     added += 1
                 progress.empty()
                 if added > 0:

@@ -27,7 +27,7 @@ COLUMNS = [
 ]
 
 MANUAL_COLUMNS  = ["gn_code", "omschrijving", "added_at"]
-LEARNED_COLUMNS = ["proposed_code", "confirmed_code", "confirmed_by", "confirmed_at", "times_seen", "last_seen", "source_subject", "duty_rate"]
+LEARNED_COLUMNS = ["proposed_code", "confirmed_code", "confirmed_by", "confirmed_at", "times_seen", "last_seen", "source_subject", "duty_rate", "auto_approve"]
 
 
 class SheetsQueue:
@@ -195,6 +195,21 @@ class SheetsQueue:
         except Exception as e:
             print(f"[SheetsQueue] learn_code error: {e}")
 
+    def set_auto_approve(self, proposed_code: str, value: bool):
+        """Set auto_approve flag for a learned code."""
+        if not self.ws_learned:
+            return
+        try:
+            col1 = self.ws_learned.col_values(1)
+            normalized = [str(c).strip() for c in col1]
+            gn_clean = str(proposed_code).strip()
+            if gn_clean in normalized:
+                row_num   = normalized.index(gn_clean) + 1
+                auto_col  = LEARNED_COLUMNS.index("auto_approve") + 1
+                self.ws_learned.update_cell(row_num, auto_col, "yes" if value else "no")
+        except Exception as e:
+            print(f"[SheetsQueue] set_auto_approve error: {e}")
+
     def get_learned_lookup(self) -> dict:
         """
         Geeft een dict terug: {proposed_code: {confirmed_code, duty_rate, times_seen, ...}}
@@ -211,7 +226,7 @@ class SheetsQueue:
                 if prop:
                     lookup[prop] = r
                 if conf and conf != prop:
-                    lookup[conf] = r  # ook de bevestigde code herkennen
+                    lookup[conf] = r
             return lookup
         except Exception as e:
             print(f"[SheetsQueue] get_learned_lookup error: {e}")
