@@ -53,7 +53,7 @@ def _search_code(code: str) -> dict:
         desc = str(exact_hits.iloc[0][desc_col]).strip() if desc_col else ""
         log  = f"Code {code_clean}: EXACT MATCH found in TARIC database. Duty rate: {duty}."
         print(f"[Validator] {log}")
-        return {"found": True, "exact": True, "suggested": code_clean, "duty_rate": duty, "description": desc, "alternatives": [], "log": log}
+        return {"found": True, "exact": True, "suggested": code_clean, "duty_rate": duty, "description": desc, "alternatives": [], "log": log, "warning": ""}
 
     # Step 2: 8-digit prefix fallback
     prefix8  = code_clean[:8]
@@ -82,7 +82,7 @@ def _search_code(code: str) -> dict:
     # Step 3: not found
     log = f"Code {code_clean}: NOT FOUND in TARIC database. No alternatives found on prefix '{code_clean[:8]}'."
     print(f"[Validator] {log}")
-    return {"found": False, "exact": False, "suggested": "", "duty_rate": "", "description": "", "alternatives": [], "log": log}
+    return {"found": False, "exact": False, "suggested": "", "duty_rate": "", "description": "", "alternatives": [], "log": log, "warning": ""}
 
 
 def validate(email_body: str, email_subject: str, learned_codes: dict = None) -> dict:
