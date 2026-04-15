@@ -100,12 +100,15 @@ def validate(email_body: str, email_subject: str, learned_codes: dict = None) ->
     code_pairs = []
 
     # Regex patterns
-    for m in re.finditer(r"received[\s:]+([\d]{6,10})[,\s]+suggest\w*[\s:]+([\d]{6,10})", combined, re.IGNORECASE):
+    # Pattern 1: "received X, suggesting/suggest Y" or "received X ... suggest to use Y"
+    for m in re.finditer(r"received[\s:]+([\d]{6,10}).*?suggest(?:\s+to\s+use)?[\s:]+([\d]{6,10})", combined, re.IGNORECASE | re.DOTALL):
         code_pairs.append((m.group(1).strip(), m.group(2).strip()))
+    # Pattern 2: dash + code + suggesting
     for m in re.finditer(r"[-\u2014]\s*([\d]{6,10})[,\s]+suggest\w*[\s:]+([\d]{6,10})", combined, re.IGNORECASE):
         p = (m.group(1).strip(), m.group(2).strip())
         if p not in code_pairs:
             code_pairs.append(p)
+    # Pattern 3: X -> Y or X should be Y
     for m in re.finditer(r"([\d]{6,10})\s*(?:->|\u2192|should be)\s*([\d]{6,10})", combined, re.IGNORECASE):
         p = (m.group(1).strip(), m.group(2).strip())
         if p not in code_pairs:
@@ -117,12 +120,17 @@ def validate(email_body: str, email_subject: str, learned_codes: dict = None) ->
             extract_resp = client.messages.create(
                 model=CLAUDE_MODEL, max_tokens=256,
                 messages=[{"role": "user", "content": f"""Extract commodity code pairs from this customs email.
-Each pair = received code (wrong) → suggested code (proposed as correct).
-Return ONLY in this format, one pair per line:
-RECEIVED: 1234567890 | SUGGESTED: 9876543210
+Each pair = received code (wrong/original) → suggested code (proposed as correct alternative).
+
+Rules:
+- "received X, suggest Y" → RECEIVED: X | SUGGESTED: Y
+- "received X, suggest to use Y" → RECEIVED: X | SUGGESTED: Y
+- "I have X but correct is Y" → RECEIVED: X | SUGGESTED: Y
+- "received X" with only one code → RECEIVED: X | SUGGESTED: X
 
 Examples:
 "Received 8413941000, suggesting 8413910090" → RECEIVED: 8413941000 | SUGGESTED: 8413910090
+"i received 39269097 and i suggest to use 3926909705" → RECEIVED: 39269097 | SUGGESTED: 3926909705
 "code 3921906000 should be 3921906090" → RECEIVED: 3921906000 | SUGGESTED: 3921906090
 
 Email subject: {email_subject}
