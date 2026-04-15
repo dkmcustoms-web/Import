@@ -367,6 +367,7 @@ If no codes found: UNKNOWN"""}])
         + (follow_up if any_not_found else "")
         + "\n\n"
         f"AI Analysis: {analysis}\n\n"
+        "Note: Please always ask confirmation to the customer before using this commodity code.\n\n"
         "Kind regards,\nDKM Customs \u2014 Commodity Validation Service"
     )
 
