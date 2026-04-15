@@ -240,8 +240,17 @@ if check_btn:
                         primary = result.get("commodity_code","")
                         learned_entry = learned_dict.get(primary, {})
                         if str(learned_entry.get("auto_approve","no")).strip().lower() == "yes":
-                            # Auto-send zonder menselijke review
-                            reply_text = result.get("suggested_reply","")
+                            # Auto-send zonder menselijke review — voeg AI disclaimer toe
+                            base_reply = result.get("suggested_reply","")
+                            ai_disclaimer = (
+                                "This email is 100% handled by AI, no team member involved. "
+                                "If you find something that I did wrong, inform the IT team.\n\n"
+                            )
+                            reply_text = base_reply.replace(
+                                "I checked your question",
+                                ai_disclaimer + "I checked your question",
+                                1
+                            )
                             ok = sender.send_reply(
                                 to=msg["sender_email"],
                                 subject=f"Re: {msg['subject']}",

@@ -237,8 +237,6 @@ If no codes found: UNKNOWN"""}])
                 display_pairs.append({"received": received, "confirmed": conf, "duty": duty, "description": "", "status": "confirmed"})
             reply = (
                 "Dear Team Member,\n\n"
-                "This email is 100% handled by AI, no team member involved. "
-                "If you find something that I did wrong, inform the IT team.\n\n"
                 "I checked your question and below I provide you with my findings.\n\n"
                 + "\n".join(compact_lines)
                 + "\n\n"
