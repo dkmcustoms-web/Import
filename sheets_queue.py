@@ -58,6 +58,8 @@ class SheetsQueue:
         # LearnedCodes
         try:
             self.ws_learned = sh.worksheet(LEARNED_SHEET)
+            if self.ws_learned.row_values(1) != LEARNED_COLUMNS:
+                self.ws_learned.insert_row(LEARNED_COLUMNS, index=1)
         except gspread.WorksheetNotFound:
             self.ws_learned = sh.add_worksheet(title=LEARNED_SHEET, rows=1000, cols=len(LEARNED_COLUMNS))
             self.ws_learned.insert_row(LEARNED_COLUMNS, index=1)
@@ -189,7 +191,7 @@ class SheetsQueue:
                 self.ws_learned.update_cell(row_num, last_col, now)
             else:
                 self.ws_learned.append_row(
-                    [proposed_clean, confirmed_clean, confirmed_by, now, 1, now, subject[:100], duty_rate],
+                    [proposed_clean, confirmed_clean, confirmed_by, now, 1, now, subject[:100], duty_rate, "no"],
                     value_input_option="RAW"
                 )
         except Exception as e:
