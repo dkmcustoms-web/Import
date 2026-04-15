@@ -456,18 +456,41 @@ If NO or UNCERTAIN: reply with just "NO"
     for received, result in all_results.items():
         suggested_input = result.get("suggested_input", received)
         if result["exact"]:
-            duty = result.get("duty_rate","")
-            compact_lines.append(
-                f"Commodity {received} received  \u2014  {suggested_input} confirmed"
-                + (f"  \u2014  Third country tariff: {duty}" if duty else "")
-            )
+            duty      = result.get("duty_rate","")
+            warning   = result.get("warning","")
+            sluitpost = result.get("sluitpost","")
+            if warning and sluitpost:
+                compact_lines.append(
+                    f"Commodity {received} received  \u2014  {suggested_input} confirmed (specific subheading)"
+                    + (f"  \u2014  Third country tariff: {duty}" if duty else "")
+                )
+                compact_lines.append(f"  \u26a0 {warning}")
+            else:
+                compact_lines.append(
+                    f"Commodity {received} received  \u2014  {suggested_input} confirmed"
+                    + (f"  \u2014  Third country tariff: {duty}" if duty else "")
+                )
         elif result["found"]:
-            best = result.get("suggested","")
-            duty = result.get("duty_rate","")
-            compact_lines.append(
-                f"Commodity {received} received  \u2014  {best} suggested, code existed"
-                + (f"  \u2014  Third country tariff: {duty}" if duty else "")
-            )
+            best    = result.get("suggested","")
+            duty    = result.get("duty_rate","")
+            warning = result.get("warning","")
+            sugg_in = result.get("suggested_input","")
+            if warning and sugg_in != best:
+                compact_lines.append(
+                    f"Commodity {received} received  \u2014  {sugg_in} as suggested is INCORRECT  \u2014  {best} recommended instead"
+                    + (f"  \u2014  Third country tariff: {duty}" if duty else "")
+                )
+                compact_lines.append(f"  \u26a0 {warning}")
+            else:
+                label = "suggested, code existed"
+                if warning:
+                    label = "suggested (specific code — residual \'Other\' recommended)"
+                compact_lines.append(
+                    f"Commodity {received} received  \u2014  {best} {label}"
+                    + (f"  \u2014  Third country tariff: {duty}" if duty else "")
+                )
+                if warning:
+                    compact_lines.append(f"  \u26a0 {warning}")
         else:
             compact_lines.append(
                 f"Commodity {received} received  \u2014  Not found in TARIC database"
