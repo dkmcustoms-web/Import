@@ -71,29 +71,42 @@ for item in [i for i in load_items() if i.get("status")=="sent"]:
 if not all_pairs:
     st.info("No validated codes yet. Approve & Send some replies first.")
 else:
-    st.markdown(f"**{len(all_pairs)} validated pair(s)**")
-    hcols = st.columns([1.4,1.4,0.8,0.5,3,1.4])
-    for col,h in zip(hcols,["Received","Confirmed","Duty","Times","Source","Auto-approve"]):
-        col.markdown(f"<span style='font-size:0.72rem;color:#888;font-family:monospace;text-transform:uppercase;'>{h}</span>",unsafe_allow_html=True)
-    st.markdown("<hr style='margin:4px 0;border-color:#2d3748;'>",unsafe_allow_html=True)
+    approved  = {k: v for k, v in all_pairs.items() if v["auto_approve"]}
+    pending   = {k: v for k, v in all_pairs.items() if not v["auto_approve"]}
 
-    for prop, info in sorted(all_pairs.items()):
-        conf=info["confirmed"]; duty=info["duty"]; times=info["times"]
-        source=info["source"]; av=info["auto_approve"]; il=info["in_learned"]
-        cc="#2ecc71" if prop!=conf else "#3cceff"
-        rc=st.columns([1.4,1.4,0.8,0.5,3,1.4])
-        rc[0].markdown(f"<span style='font-family:monospace;color:#f0a500;font-size:0.9rem;'>{prop}</span>",unsafe_allow_html=True)
-        rc[1].markdown(f"<span style='font-family:monospace;color:{cc};font-weight:700;font-size:0.9rem;'>✅ {conf}</span>",unsafe_allow_html=True)
-        rc[2].markdown(f"<span style='color:#aaa;font-size:0.85rem;'>{duty}</span>",unsafe_allow_html=True)
-        rc[3].markdown(f"<span style='color:#f0a500;font-weight:600;'>{times}x</span>",unsafe_allow_html=True)
-        rc[4].markdown(f"<span style='color:#555;font-size:0.8rem;'>{source}</span>",unsafe_allow_html=True)
-        nv=rc[5].toggle("",value=av,key=f"ap_{prop}",label_visibility="collapsed",help=f"{prop}→{conf}")
-        if nv != av:
-            if not il:
-                queue.learn_code(proposed_code=prop,confirmed_code=conf,subject=source,duty_rate=duty)
-            queue.set_auto_approve(prop,nv)
-            st.toast(f"{'✅ Enabled' if nv else '⭕ Disabled'}: {prop} → {conf}")
-            st.cache_data.clear()
-            st.rerun()
+    st.markdown(f"**{len(all_pairs)} validated pair(s)** — 🟢 {len(approved)} auto-approve ON · ⭕ {len(pending)} OFF")
+
+    def render_table(pairs_dict, tab_key):
+        if not pairs_dict:
+            st.info("No entries in this category.")
+            return
+        hcols = st.columns([1.4,1.4,0.8,0.5,3,1.4])
+        for col,h in zip(hcols,["Received","Confirmed","Duty","Times","Source","Auto-approve"]):
+            col.markdown(f"<span style='font-size:0.72rem;color:#888;font-family:monospace;text-transform:uppercase;'>{h}</span>",unsafe_allow_html=True)
+        st.markdown("<hr style='margin:4px 0;border-color:#2d3748;'>",unsafe_allow_html=True)
+        for prop, info in sorted(pairs_dict.items()):
+            conf=info["confirmed"]; duty=info["duty"]; times=info["times"]
+            source=info["source"]; av=info["auto_approve"]; il=info["in_learned"]
+            cc="#2ecc71" if prop!=conf else "#3cceff"
+            rc=st.columns([1.4,1.4,0.8,0.5,3,1.4])
+            rc[0].markdown(f"<span style='font-family:monospace;color:#f0a500;font-size:0.9rem;'>{prop}</span>",unsafe_allow_html=True)
+            rc[1].markdown(f"<span style='font-family:monospace;color:{cc};font-weight:700;font-size:0.9rem;'>✅ {conf}</span>",unsafe_allow_html=True)
+            rc[2].markdown(f"<span style='color:#aaa;font-size:0.85rem;'>{duty}</span>",unsafe_allow_html=True)
+            rc[3].markdown(f"<span style='color:#f0a500;font-weight:600;'>{times}x</span>",unsafe_allow_html=True)
+            rc[4].markdown(f"<span style='color:#555;font-size:0.8rem;'>{source}</span>",unsafe_allow_html=True)
+            nv=rc[5].toggle("",value=av,key=f"ap_{tab_key}_{prop}",label_visibility="collapsed",help=f"{prop}→{conf}")
+            if nv != av:
+                if not il:
+                    queue.learn_code(proposed_code=prop,confirmed_code=conf,subject=source,duty_rate=duty)
+                queue.set_auto_approve(prop,nv)
+                st.toast(f"{'✅ Enabled' if nv else '⭕ Disabled'}: {prop} → {conf}")
+                st.cache_data.clear()
+                st.rerun()
+
+    tab_on, tab_off = st.tabs([f"🟢 Auto-approve ON ({len(approved)})", f"⭕ Auto-approve OFF ({len(pending)})"])
+    with tab_on:
+        render_table(approved, "on")
+    with tab_off:
+        render_table(pending, "off")
 
     st.caption("Changes are saved immediately to Google Sheets.")
