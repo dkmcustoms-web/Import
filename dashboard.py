@@ -106,7 +106,8 @@ with st.sidebar:
     auto_refresh = st.toggle("Auto-refresh (600s)", value=False)
     st.markdown("---")
     if st.button("⚙️ Confirmations", use_container_width=True):
-        st.switch_page("pages/1_Confirmations.py")
+        st.query_params["page"] = "confirmations"
+        st.rerun()
     st.markdown("---")
     learn_setting = st.toggle("Remember confirmed codes", value=True, key="learn_toggle",
         help="Codes are saved after Approve & Send")
