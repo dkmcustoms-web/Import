@@ -292,10 +292,20 @@ If no codes found: UNKNOWN"""}])
                 + (f"  \u2014  {desc}" if desc else "")
                 + (f"  \u2014  Third country tariff: {duty}" if duty else "")
             )
-            analysis_lines.append(
-                f"Received {received}, suggested {suggested_input}: not found. Best alternative: {best}"
-                + (f" (duty: {duty})" if duty else "") + "."
-            )
+            warning = result.get("warning", "")
+            if warning:
+                # Prefix mismatch — suggested exists but wrong heading
+                analysis_lines.append(
+                    f"Received {received}, suggested {suggested_input}: "
+                    f"code exists in TARIC but belongs to a different subheading. "
+                    f"Recommended alternative: {best}"
+                    + (f" (duty: {duty})" if duty else "") + "."
+                )
+            else:
+                analysis_lines.append(
+                    f"Received {received}, suggested {suggested_input}: not found. Best alternative: {best}"
+                    + (f" (duty: {duty})" if duty else "") + "."
+                )
         else:
             bullets.append(f"\u2022 {suggested_input}  \u2014  Not found in TARIC database.")
             analysis_lines.append(f"Received {received}, suggested {suggested_input}: not found in TARIC database.")
