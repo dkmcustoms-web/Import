@@ -174,10 +174,10 @@ if _page == "⚙️ Confirmations":
                 st.cache_data.clear()
                 st.success(f"{'✅ Enabled' if _nv else '⭕ Disabled'}: {_prop} → {_conf}")
                 st.rerun()
-else:
-    # ── Queue & History ───────────────────────────────────────────────────────
-    # ── Poll sectie ────────────────────────────────────────────────────────────
-    c1, c2 = st.columns([3,1])
+    st.stop()
+
+# ── Poll sectie ────────────────────────────────────────────────────────────────
+c1, c2 = st.columns([3,1])
 with c1:
     st.markdown("#### 📬 Fetch new emails")
     st.markdown("<span style='color:#888;font-size:0.82rem'>Picks up unread emails with label <b>CommodityCheckAI</b></span>", unsafe_allow_html=True)
