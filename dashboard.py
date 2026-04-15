@@ -103,7 +103,7 @@ with st.sidebar:
     st.markdown("---")
     if st.button("🔄 Refresh", use_container_width=True):
         st.cache_data.clear(); st.rerun()
-    auto_refresh = st.toggle("Auto-refresh (600s)", value=False)
+    auto_refresh = st.toggle("Auto-refresh (600s)", value=True)
     st.markdown("---")
     if st.button("⚙️ Confirmations", use_container_width=True):
         st.query_params["page"] = "confirmations"
