@@ -191,7 +191,7 @@ if check_btn:
             st.error(f"Error: {e}")
 
 # ── Render functie ────────────────────────────────────────────────────────────
-def render_items(items, allow_actions=True):
+def render_items(items, allow_actions=True, show_auto_approve=False):
     if not items:
         st.info("No items.")
         return
@@ -293,6 +293,45 @@ def render_items(items, allow_actions=True):
             </div>
         </div>
         """, unsafe_allow_html=True)
+
+        # Auto-approve toggle for sent items
+        if show_auto_approve and status == "sent":
+            import json as _ajson
+            raw_dp = item.get("display_pairs","")
+            dp = []
+            try:
+                dp = _ajson.loads(str(raw_dp)) if raw_dp else []
+            except Exception:
+                pass
+            if dp:
+                learned_lookup = {}
+                try:
+                    learned_lookup = queue.get_learned_lookup()
+                except Exception:
+                    pass
+                for pair in dp:
+                    p_rec  = str(pair.get("received","")).strip()
+                    p_conf = str(pair.get("confirmed","")).strip()
+                    if not p_rec or not p_conf:
+                        continue
+                    entry      = learned_lookup.get(p_rec, {})
+                    auto_val   = str(entry.get("auto_approve","no")).strip().lower() == "yes"
+                    new_toggle = st.toggle(
+                        f"🤖 Auto-approve future emails with `{p_rec}` → `{p_conf}`",
+                        value=auto_val,
+                        key=f"auto_sent_{row_id}_{p_rec}"
+                    )
+                    if new_toggle != auto_val:
+                        if not entry:
+                            # Not yet in learned — add it
+                            p_duty = str(pair.get("duty","")).strip()
+                            queue.learn_code(proposed_code=p_rec, confirmed_code=p_conf,
+                                           subject=subject, duty_rate=p_duty)
+                        queue.set_auto_approve(p_rec, new_toggle)
+                        st.cache_data.clear()
+                        action = "enabled" if new_toggle else "disabled"
+                        st.success(f"Auto-approve {action} for {p_rec} → {p_conf}")
+                        st.rerun()
 
         if allow_actions and status in ("pending","flagged"):
             with st.expander("✏️ Review, manual code & reply", expanded=False):
