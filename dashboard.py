@@ -103,7 +103,7 @@ with st.sidebar:
     st.markdown("---")
     if st.button("🔄 Refresh", use_container_width=True):
         st.cache_data.clear(); st.rerun()
-    auto_refresh = st.toggle("Auto-refresh (300s)", value=True)
+    auto_refresh = st.toggle("Auto-refresh (300s)", value=False)
     st.markdown("---")
     if st.button("⚙️ Confirmations", use_container_width=True):
         st.query_params["page"] = "confirmations"
@@ -137,6 +137,7 @@ if _qpage == "confirmations":
             if prop:
                 _all_pairs[prop] = {"confirmed":conf,"duty":str(r.get("duty_rate","")).strip(),
                     "times":str(r.get("times_seen",1)),"source":str(r.get("source_subject",""))[:60],
+                    "description":"",
                     "auto_approve":str(r.get("auto_approve","no")).strip().lower()=="yes","in_learned":True}
     except Exception as _e:
         st.warning(f"Cannot load LearnedCodes: {_e}")
@@ -146,7 +147,9 @@ if _qpage == "confirmations":
                 _r=str(_p.get("received","")).strip(); _c=str(_p.get("confirmed","")).strip()
                 if _r and _c and _r not in _all_pairs:
                     _all_pairs[_r]={"confirmed":_c,"duty":str(_p.get("duty","")).strip(),
-                        "times":"1","source":str(_item.get("subject",""))[:60],"auto_approve":False,"in_learned":False}
+                        "times":"1","source":str(_item.get("subject",""))[:60],
+                        "description":str(_p.get("description","")).strip(),
+                        "auto_approve":False,"in_learned":False}
         except Exception:
             pass
     if not _all_pairs:
@@ -160,28 +163,29 @@ if _qpage == "confirmations":
             if not pairs_dict:
                 st.info("No entries in this category.")
                 return
-            _hc=st.columns([1.4,1.4,0.8,0.5,3,1.4])
-            for _col,_h in zip(_hc,["Received","Confirmed","Duty","Times","Source","Auto-approve"]):
+            _hc=st.columns([1.3,1.3,0.7,0.5,2,2,1.2])
+            for _col,_h in zip(_hc,["Received","Confirmed","Duty","Times","Description","Source","Auto-approve"]):
                 _col.markdown(f"<span style='font-size:0.72rem;color:#888;font-family:monospace;text-transform:uppercase;'>{_h}</span>",unsafe_allow_html=True)
             st.markdown("<hr style='margin:4px 0;border-color:#2d3748;'>",unsafe_allow_html=True)
             for _prop,_info in sorted(pairs_dict.items()):
                 _conf=_info["confirmed"]; _duty=_info["duty"]; _times=_info["times"]
                 _src=_info["source"]; _av=_info["auto_approve"]; _il=_info["in_learned"]
+                _desc=_info.get("description","")
                 _cc="#2ecc71" if _prop!=_conf else "#3cceff"
-                _rc=st.columns([1.4,1.4,0.8,0.5,3,1.4])
+                _rc=st.columns([1.3,1.3,0.7,0.5,2,2,1.2])
                 _rc[0].markdown(f"<span style='font-family:monospace;color:#f0a500;font-size:0.9rem;'>{_prop}</span>",unsafe_allow_html=True)
                 _rc[1].markdown(f"<span style='font-family:monospace;color:{_cc};font-weight:700;font-size:0.9rem;'>✅ {_conf}</span>",unsafe_allow_html=True)
                 _rc[2].markdown(f"<span style='color:#aaa;font-size:0.85rem;'>{_duty}</span>",unsafe_allow_html=True)
                 _rc[3].markdown(f"<span style='color:#f0a500;font-weight:600;'>{_times}x</span>",unsafe_allow_html=True)
-                _rc[4].markdown(f"<span style='color:#555;font-size:0.8rem;'>{_src}</span>",unsafe_allow_html=True)
-                _nv=_rc[5].toggle("",value=_av,key=f"ap_{tab_key}_{_prop}",label_visibility="collapsed",help=f"{_prop}→{_conf}")
+                _rc[4].markdown(f"<span style='color:#ccc;font-size:0.8rem;font-style:italic;'>{_desc}</span>",unsafe_allow_html=True)
+                _rc[5].markdown(f"<span style='color:#555;font-size:0.8rem;'>{_src}</span>",unsafe_allow_html=True)
+                _nv=_rc[6].toggle("",value=_av,key=f"ap_{tab_key}_{_prop}",label_visibility="collapsed",help=f"{_prop}→{_conf}")
                 if _nv != _av:
                     if not _il:
                         queue.learn_code(proposed_code=_prop,confirmed_code=_conf,subject=_src,duty_rate=_duty)
                     queue.set_auto_approve(_prop,_nv)
                     st.toast(f"{'✅ Enabled' if _nv else '⭕ Disabled'}: {_prop} → {_conf}")
                     st.cache_data.clear()
-                    st.rerun()
 
         _tab_on, _tab_off = st.tabs([f"🟢 Auto-approve ON ({len(_approved)})", f"⭕ Auto-approve OFF ({len(_pending)})"])
         with _tab_on:
@@ -344,12 +348,17 @@ def render_items(items, allow_actions=True, show_auto_approve=False):
             received  = pair.get("received", "")
             confirmed = pair.get("confirmed", "")
             pstatus   = pair.get("status", "not_found")
+            desc      = pair.get("description", "")
             conf_style, conf_icon = status_styles.get(pstatus, status_styles["not_found"])
             conf_text = confirmed if confirmed else "Not confirmed"
+            desc_html = f'<div style="color:#888;font-size:0.78rem;font-style:italic;margin-top:0.2rem;padding-left:2px;">{desc}</div>' if desc else ""
             code_rows_parts.append(
-                f'<div style="display:flex;gap:0.8rem;margin-top:0.4rem;align-items:center;">' +
+                f'<div style="display:flex;flex-direction:column;margin-top:0.4rem;">' +
+                f'<div style="display:flex;gap:0.8rem;align-items:center;">' +
                 f'<div class="code-block" style="min-width:150px;">📦 <strong>{received}</strong></div>' +
                 f'<div class="code-block" style="{conf_style}min-width:150px;">{conf_icon} <strong>{conf_text}</strong></div>' +
+                f'</div>' +
+                desc_html +
                 f'</div>'
             )
         res_div = f'<div style="margin-top:6px;">{res_html}</div>' if res_html else ""
@@ -530,4 +539,4 @@ with tab_all:
     render_items(items_all, allow_actions=False)
 
 if auto_refresh:
-    time.sleep(600); st.rerun()
+    time.sleep(300); st.rerun()

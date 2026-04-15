@@ -234,7 +234,7 @@ If no codes found: UNKNOWN"""}])
                     f"Commodity {received} received  \u2014  {conf} confirmed (previously validated {times}x)"
                     + (f"  \u2014  Third country tariff: {duty}" if duty else "")
                 )
-                display_pairs.append({"received": received, "confirmed": conf, "duty": duty, "status": "confirmed"})
+                display_pairs.append({"received": received, "confirmed": conf, "duty": duty, "description": "", "status": "confirmed"})
             reply = (
                 "Dear Team Member,\n\n"
                 "This email is 100% handled by AI, no team member involved. "
@@ -540,6 +540,7 @@ If NO or UNCERTAIN: reply with just "NO"
                 "received": received,
                 "confirmed": suggested_input,
                 "duty": result.get("duty_rate",""),
+                "description": result.get("description",""),
                 "status": "confirmed"
             })
         elif result["found"]:
@@ -547,6 +548,7 @@ If NO or UNCERTAIN: reply with just "NO"
                 "received": received,
                 "confirmed": result.get("suggested",""),
                 "duty": result.get("duty_rate",""),
+                "description": result.get("description",""),
                 "status": "existed"
             })
         else:
@@ -554,6 +556,7 @@ If NO or UNCERTAIN: reply with just "NO"
                 "received": received,
                 "confirmed": "",
                 "duty": "",
+                "description": "",
                 "status": "not_found"
             })
 
