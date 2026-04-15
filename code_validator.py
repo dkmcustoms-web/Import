@@ -211,9 +211,44 @@ If no codes found: UNKNOWN"""}])
     for received, suggested in code_pairs:
         if suggested == "UNKNOWN" or not suggested:
             result = {"found": False, "exact": False, "suggested": "", "duty_rate": "",
-                      "description": "", "alternatives": [], "log": "No code found in email."}
+                      "description": "", "alternatives": [], "log": "No code found in email.", "warning": ""}
         else:
             result = _search_code(suggested)
+
+            # ── DKM Prefix consistency check ──────────────────────────────
+            # The suggested code must share at least 6 digits with the received code.
+            # If not, the suggestion is likely wrong — find correct alternative
+            # based on the received code prefix instead.
+            rec_clean  = re.sub(r"\D", "", received).strip()
+            sugg_clean = re.sub(r"\D", "", suggested).strip()
+            prefix_len = min(len(rec_clean), 6)
+            rec_prefix = rec_clean[:prefix_len]
+
+            if rec_clean and sugg_clean and not sugg_clean.startswith(rec_clean[:min(len(rec_clean),6)]):
+                # Suggested code has different prefix than received — wrong suggestion
+                old_suggestion = suggested
+                decision_log.append(
+                    f"PREFIX MISMATCH: Received '{rec_clean}' and suggested '{sugg_clean}' "
+                    f"do not share common prefix '{rec_prefix}'. "
+                    f"Suggested code is likely incorrect. Searching on received prefix instead."
+                )
+                # Look up alternatives based on RECEIVED code prefix
+                correct_result = _search_code(rec_clean)
+                if correct_result["found"]:
+                    correct_result["warning"] = (
+                        f"The suggested code {sugg_clean} does not match the received code {rec_clean} "
+                        f"(different HS heading/subheading). "
+                        f"Based on the received code {rec_clean}, the correct code is likely: "
+                        f"{correct_result['suggested']}."
+                    )
+                    correct_result["suggested_input"] = suggested  # keep original for display
+                    result = correct_result
+                else:
+                    result["warning"] = (
+                        f"The suggested code {sugg_clean} does not match the received code {rec_clean}. "
+                        f"No alternative found in database for prefix '{rec_prefix}'."
+                    )
+
         result["received"]        = received
         result["suggested_input"] = suggested
         all_results[received]     = result
