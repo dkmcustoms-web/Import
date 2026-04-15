@@ -46,14 +46,59 @@ def _search_code(code: str) -> dict:
 
     desc_col  = "short_description" if "short_description" in df.columns else None
 
+    SPECIFIC_ENDINGS = {"05","10","15","20","22","25","27","30","33","40","43",
+                         "45","48","50","55","58","60","70","77","80","85"}
+    SLUITPOST_ENDINGS = {"90","99","00","19","91","98","89"}
+
     # Step 1: exact match
     exact_hits = df[db_codes == code_clean]
     if not exact_hits.empty:
         duty = str(exact_hits.iloc[0][duty_col]).strip() if duty_col else ""
         desc = str(exact_hits.iloc[0][desc_col]).strip() if desc_col else ""
-        log  = f"Code {code_clean}: EXACT MATCH found in TARIC database. Duty rate: {duty}."
-        print(f"[Validator] {log}")
-        return {"found": True, "exact": True, "suggested": code_clean, "duty_rate": duty, "description": desc, "alternatives": [], "log": log, "warning": ""}
+
+        # Check if this is a specific code (not the sluitpost)
+        last2 = code_clean[-2:] if len(code_clean) >= 2 else ""
+        if last2 in SPECIFIC_ENDINGS:
+            # Find the sluitpost for comparison
+            prefix8   = code_clean[:8]
+            alt_hits  = df[db_codes.str.startswith(prefix8)]
+            sluitpost = None
+            for _, row in alt_hits.sort_values(code_col, ascending=False).iterrows():
+                c = str(row[code_col]).strip()
+                if c[-2:] in SLUITPOST_ENDINGS:
+                    d = str(row[desc_col]).strip().lower() if desc_col else ""
+                    if any(kw in d for kw in ["other","n.e.s.","nes","overige","niet elders"]):
+                        sluitpost = {
+                            "code": c,
+                            "duty": str(row[duty_col]).strip() if duty_col else "",
+                            "desc": str(row[desc_col]).strip() if desc_col else "",
+                        }
+                        break
+
+            warning = ""
+            if sluitpost and sluitpost["code"] != code_clean:
+                warning = (
+                    f"Note: Code {code_clean} is a specific subheading "
+                    f"(ending '{last2}' indicates a special application). "
+                    f"Unless the goods specifically match this description, "
+                    f"the residual 'Other' code {sluitpost['code']} is more likely correct. "
+                    f"Please verify with the customer."
+                )
+
+            log = f"Code {code_clean}: EXACT MATCH found in TARIC database. Duty rate: {duty}."
+            if warning:
+                log += f" WARNING: specific ending '{last2}' detected."
+            print(f"[Validator] {log}")
+            return {"found": True, "exact": True, "suggested": code_clean,
+                    "duty_rate": duty, "description": desc, "alternatives": [],
+                    "log": log, "warning": warning,
+                    "sluitpost": sluitpost["code"] if sluitpost else ""}
+        else:
+            log = f"Code {code_clean}: EXACT MATCH found in TARIC database. Duty rate: {duty}."
+            print(f"[Validator] {log}")
+            return {"found": True, "exact": True, "suggested": code_clean,
+                    "duty_rate": duty, "description": desc, "alternatives": [],
+                    "log": log, "warning": ""}
 
     # Step 2: 8-digit prefix fallback
     prefix8  = code_clean[:8]
