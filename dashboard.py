@@ -105,77 +105,16 @@ with st.sidebar:
         st.cache_data.clear(); st.rerun()
     auto_refresh = st.toggle("Auto-refresh (600s)", value=False)
     st.markdown("---")
-    st.markdown("**Navigation**")
-    page = st.radio("", ["📋 Queue & History", "⚙️ Confirmations"],
-                    label_visibility="collapsed",
-                    key="nav_page")
-    st.session_state["current_page"] = page
+    if st.button("⚙️ Confirmations", use_container_width=True):
+        st.switch_page("pages/1_Confirmations.py")
     st.markdown("---")
-    if page == "⚙️ Confirmations":
-        learn_setting = st.toggle("Remember confirmed codes", value=True, key="learn_toggle",
-            help="Codes are saved after Approve & Send")
-        st.session_state["learn_codes"] = learn_setting
+    learn_setting = st.toggle("Remember confirmed codes", value=True, key="learn_toggle",
+        help="Codes are saved after Approve & Send")
+    st.session_state["learn_codes"] = learn_setting
     st.markdown("<span style='color:#3cceff;font-size:0.75rem;font-family:monospace'>Commodity Checker v1.0</span>", unsafe_allow_html=True)
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown("""<h1 style="font-family:'DM Mono',monospace;font-size:1.6rem;font-weight:500;color:#3cceff;margin-bottom:1.5rem;">DKM <span style="color:#f35e40">·</span> Commodity Checker</h1>""", unsafe_allow_html=True)
-
-# ── Page routing ──────────────────────────────────────────────────────────────
-import json as _sjson
-_page = st.session_state.get("current_page", "📋 Queue & History")
-
-if _page == "⚙️ Confirmations":
-    st.markdown("### Confirmations — Auto-approve Settings")
-    st.markdown("<span style='color:#888'>Toggle auto-approve for validated code pairs.</span>", unsafe_allow_html=True)
-    st.markdown("---")
-    _all_pairs = {}
-    try:
-        for r in queue.get_learned_codes():
-            prop = str(r.get("proposed_code") or r.get("gn_code","")).strip()
-            conf = str(r.get("confirmed_code") or r.get("gn_code","")).strip()
-            if prop:
-                _all_pairs[prop] = {"confirmed":conf,"duty":str(r.get("duty_rate","")).strip(),
-                    "times":str(r.get("times_seen",1)),"source":str(r.get("source_subject",""))[:55],
-                    "auto_approve":str(r.get("auto_approve","no")).strip().lower()=="yes","in_learned":True}
-    except Exception as _e:
-        st.warning(f"Cannot load LearnedCodes: {_e}")
-    for _item in [i for i in load_items() if i.get("status")=="sent"]:
-        try:
-            for _p in _sjson.loads(str(_item.get("display_pairs","")) or "[]"):
-                _r=str(_p.get("received","")).strip(); _c=str(_p.get("confirmed","")).strip()
-                if _r and _c and _r not in _all_pairs:
-                    _all_pairs[_r]={"confirmed":_c,"duty":str(_p.get("duty","")).strip(),
-                        "times":"1","source":str(_item.get("subject",""))[:55],"auto_approve":False,"in_learned":False}
-        except Exception:
-            pass
-    if not _all_pairs:
-        st.info("No validated codes yet. Approve & Send some replies first.")
-    else:
-        st.markdown(f"**{len(_all_pairs)} validated pair(s)** — toggle to enable auto-reply:")
-        _hc = st.columns([1.4,1.4,0.8,0.5,2.5,1.4])
-        for _col,_h in zip(_hc,["Received","Confirmed","Duty","Times","Source","Auto-approve"]):
-            _col.markdown(f"<span style='font-size:0.72rem;color:#888;font-family:monospace;'>{_h}</span>",unsafe_allow_html=True)
-        st.markdown("<hr style='margin:4px 0;border-color:#2d3748;'>",unsafe_allow_html=True)
-        for _prop, _info in sorted(_all_pairs.items()):
-            _conf=_info["confirmed"]; _duty=_info["duty"]; _times=_info["times"]
-            _src=_info["source"]; _av=_info["auto_approve"]; _il=_info["in_learned"]
-            _cc="#2ecc71" if _prop!=_conf else "#3cceff"
-            _rc=st.columns([1.4,1.4,0.8,0.5,2.5,1.4])
-            _rc[0].markdown(f"<span style='font-family:monospace;color:#f0a500;font-size:0.88rem;'>{_prop}</span>",unsafe_allow_html=True)
-            _rc[1].markdown(f"<span style='font-family:monospace;color:{_cc};font-weight:700;font-size:0.88rem;'>✅ {_conf}</span>",unsafe_allow_html=True)
-            _rc[2].markdown(f"<span style='color:#aaa;font-size:0.82rem;'>{_duty}</span>",unsafe_allow_html=True)
-            _rc[3].markdown(f"<span style='color:#f0a500;font-weight:600;'>{_times}x</span>",unsafe_allow_html=True)
-            _rc[4].markdown(f"<span style='color:#555;font-size:0.78rem;'>{_src}</span>",unsafe_allow_html=True)
-            _nv=_rc[5].toggle("",value=_av,key=f"ca_{_prop}",label_visibility="collapsed",help=f"{_prop}→{_conf}")
-            if _nv != _av:
-                if not _il:
-                    queue.learn_code(proposed_code=_prop,confirmed_code=_conf,subject=_src,duty_rate=_duty)
-                queue.set_auto_approve(_prop,_nv)
-                action = "✅ Enabled" if _nv else "⭕ Disabled"
-                st.toast(f"{action}: {_prop} → {_conf}")
-    st.markdown("---")
-    st.caption("Changes are saved immediately to the LearnedCodes sheet.")
-
 
 # ── Poll sectie ────────────────────────────────────────────────────────────────
 c1, c2 = st.columns([3,1])
