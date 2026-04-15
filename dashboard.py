@@ -340,14 +340,33 @@ def render_items(items, allow_actions=True):
                                     # Leer de code als setting aan staat
                                     learn = st.session_state.get("learn_codes", True)
                                     if learn and res_type in ("auto_resolved","existed"):
-                                        prop = code_asked  # originele voorgestelde code
-                                        conf = confirmed_code if confirmed_code else code_asked
-                                        queue.learn_code(
-                                            proposed_code=prop,
-                                            confirmed_code=conf,
-                                            subject=subject,
-                                        )
-                                        st.success(f"✅ Sent! {prop} → {conf} saved to LearnedCodes.")
+                                        # Use display_pairs to save each pair correctly
+                                        import json as _ljson
+                                        raw_dp = item.get("display_pairs","")
+                                        dp = []
+                                        try:
+                                            dp = _ljson.loads(str(raw_dp)) if raw_dp else []
+                                        except Exception:
+                                            pass
+                                        if dp:
+                                            for pair in dp:
+                                                p_rec  = str(pair.get("received","")).strip()
+                                                p_conf = str(pair.get("confirmed","")).strip()
+                                                p_duty = str(pair.get("duty","")).strip()
+                                                if p_rec and p_conf:
+                                                    queue.learn_code(
+                                                        proposed_code=p_rec,
+                                                        confirmed_code=p_conf,
+                                                        subject=subject,
+                                                        duty_rate=p_duty,
+                                                    )
+                                            st.success(f"✅ Sent! {len(dp)} code(s) saved to LearnedCodes.")
+                                        else:
+                                            conf = str(confirmed_code).strip() if confirmed_code else ""
+                                            prop = str(code_asked_str).strip() if code_asked_str else ""
+                                            if prop and conf:
+                                                queue.learn_code(proposed_code=prop, confirmed_code=conf, subject=subject)
+                                            st.success("✅ Sent!")
                                     else:
                                         st.success("✅ Sent!")
                                     st.session_state.pop(confirm_key, None)
