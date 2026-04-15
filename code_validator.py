@@ -236,17 +236,20 @@ If no codes found: UNKNOWN"""}])
                 correct_result = _search_code(rec_clean)
                 if correct_result["found"]:
                     correct_result["warning"] = (
-                        f"The suggested code {sugg_clean} does not match the received code {rec_clean} "
-                        f"(different HS heading/subheading). "
-                        f"Based on the received code {rec_clean}, the correct code is likely: "
-                        f"{correct_result['suggested']}."
+                        f"Code {sugg_clean} exists in the TARIC database but is unlikely correct here: "
+                        f"it belongs to a different HS subheading than the received code {rec_clean}. "
+                        f"Based on the received code prefix '{rec_prefix}', "
+                        f"the most likely correct code is: {correct_result['suggested']}. "
+                        f"If you have specific information that justifies {sugg_clean}, please verify manually."
                     )
                     correct_result["suggested_input"] = suggested  # keep original for display
                     result = correct_result
                 else:
                     result["warning"] = (
-                        f"The suggested code {sugg_clean} does not match the received code {rec_clean}. "
-                        f"No alternative found in database for prefix '{rec_prefix}'."
+                        f"Code {sugg_clean} exists in the TARIC database but belongs to a different "
+                        f"HS subheading than received code {rec_clean}. "
+                        f"No alternative found in database for prefix '{rec_prefix}'. "
+                        f"Please verify manually."
                     )
 
         result["received"]        = received
