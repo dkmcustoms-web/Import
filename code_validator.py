@@ -41,7 +41,7 @@ def _search_code(code: str) -> dict:
         return {"found": False, "exact": False, "suggested": "", "duty_rate": "", "alternatives": [], "log": f"Code '{code}' contains no digits."}
 
     code_col = "gn_code"
-    duty_col = "douanerecht" if "douanerecht" in df.columns else None
+    duty_col = "douanerecht" if "douanerecht" in df.columns else ("third_country_duty" if "third_country_duty" in df.columns else None)
     db_codes = df[code_col].fillna("").str.replace(r"\D", "", regex=True)
 
     desc_col  = "short_description" if "short_description" in df.columns else None
