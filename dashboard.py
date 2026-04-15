@@ -117,6 +117,67 @@ with st.sidebar:
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown("""<h1 style="font-family:'DM Mono',monospace;font-size:1.6rem;font-weight:500;color:#3cceff;margin-bottom:1.5rem;">DKM <span style="color:#f35e40">·</span> Commodity Checker</h1>""", unsafe_allow_html=True)
 
+# ── Page routing ──────────────────────────────────────────────────────────────
+import json as _cjson
+_qpage = st.query_params.get("page", "main")
+
+if _qpage == "confirmations":
+    st.markdown("## ⚙️ Confirmations — Auto-approve")
+    if st.button("← Back to Dashboard"):
+        st.query_params.clear()
+        st.rerun()
+    st.markdown("---")
+    st.markdown("<span style='color:#888'>When **ON**, future emails with this code are automatically replied to without manual review.</span>", unsafe_allow_html=True)
+    st.markdown("")
+    _all_pairs = {}
+    try:
+        for r in queue.get_learned_codes():
+            prop = str(r.get("proposed_code") or r.get("gn_code","")).strip()
+            conf = str(r.get("confirmed_code") or r.get("gn_code","")).strip()
+            if prop:
+                _all_pairs[prop] = {"confirmed":conf,"duty":str(r.get("duty_rate","")).strip(),
+                    "times":str(r.get("times_seen",1)),"source":str(r.get("source_subject",""))[:60],
+                    "auto_approve":str(r.get("auto_approve","no")).strip().lower()=="yes","in_learned":True}
+    except Exception as _e:
+        st.warning(f"Cannot load LearnedCodes: {_e}")
+    for _item in [i for i in load_items() if i.get("status")=="sent"]:
+        try:
+            for _p in _cjson.loads(str(_item.get("display_pairs","")) or "[]"):
+                _r=str(_p.get("received","")).strip(); _c=str(_p.get("confirmed","")).strip()
+                if _r and _c and _r not in _all_pairs:
+                    _all_pairs[_r]={"confirmed":_c,"duty":str(_p.get("duty","")).strip(),
+                        "times":"1","source":str(_item.get("subject",""))[:60],"auto_approve":False,"in_learned":False}
+        except Exception:
+            pass
+    if not _all_pairs:
+        st.info("No validated codes yet. Approve & Send some replies first.")
+    else:
+        st.markdown(f"**{len(_all_pairs)} validated pair(s)**")
+        _hc=st.columns([1.4,1.4,0.8,0.5,3,1.4])
+        for _col,_h in zip(_hc,["Received","Confirmed","Duty","Times","Source","Auto-approve"]):
+            _col.markdown(f"<span style='font-size:0.72rem;color:#888;font-family:monospace;text-transform:uppercase;'>{_h}</span>",unsafe_allow_html=True)
+        st.markdown("<hr style='margin:4px 0;border-color:#2d3748;'>",unsafe_allow_html=True)
+        for _prop,_info in sorted(_all_pairs.items()):
+            _conf=_info["confirmed"]; _duty=_info["duty"]; _times=_info["times"]
+            _src=_info["source"]; _av=_info["auto_approve"]; _il=_info["in_learned"]
+            _cc="#2ecc71" if _prop!=_conf else "#3cceff"
+            _rc=st.columns([1.4,1.4,0.8,0.5,3,1.4])
+            _rc[0].markdown(f"<span style='font-family:monospace;color:#f0a500;font-size:0.9rem;'>{_prop}</span>",unsafe_allow_html=True)
+            _rc[1].markdown(f"<span style='font-family:monospace;color:{_cc};font-weight:700;font-size:0.9rem;'>✅ {_conf}</span>",unsafe_allow_html=True)
+            _rc[2].markdown(f"<span style='color:#aaa;font-size:0.85rem;'>{_duty}</span>",unsafe_allow_html=True)
+            _rc[3].markdown(f"<span style='color:#f0a500;font-weight:600;'>{_times}x</span>",unsafe_allow_html=True)
+            _rc[4].markdown(f"<span style='color:#555;font-size:0.8rem;'>{_src}</span>",unsafe_allow_html=True)
+            _nv=_rc[5].toggle("",value=_av,key=f"ap_{_prop}",label_visibility="collapsed",help=f"{_prop}→{_conf}")
+            if _nv != _av:
+                if not _il:
+                    queue.learn_code(proposed_code=_prop,confirmed_code=_conf,subject=_src,duty_rate=_duty)
+                queue.set_auto_approve(_prop,_nv)
+                st.toast(f"{'✅ Enabled' if _nv else '⭕ Disabled'}: {_prop} → {_conf}")
+                st.cache_data.clear()
+                st.rerun()
+        st.caption("Changes are saved immediately to Google Sheets.")
+    st.stop()
+
 # ── Poll sectie ────────────────────────────────────────────────────────────────
 c1, c2 = st.columns([3,1])
 with c1:
