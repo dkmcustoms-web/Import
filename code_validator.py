@@ -223,21 +223,26 @@ If no codes found: UNKNOWN"""}])
         cached_hits = {code: learned_codes[code] for code in all_codes if code in learned_codes}
         if cached_hits and len(cached_hits) == len(all_codes):
             decision_log.append(f"CACHE HIT: All codes found in LearnedCodes database: {list(cached_hits.keys())}. No TARIC lookup needed.")
-            bullets = []
-            for code, info in cached_hits.items():
-                times = info.get("times_seen", 1)
+            compact_lines = []
+            display_pairs = []
+            for received, suggested in code_pairs:
+                info  = cached_hits.get(received) or cached_hits.get(suggested) or {}
+                conf  = info.get("confirmed_code", suggested)
                 duty  = info.get("duty_rate", "")
-                conf  = info.get("confirmed_code", code)
-                bullets.append(
-                    f"\u2022 {conf}  \u2014  Confirmed (previously validated {times}x)"
+                times = info.get("times_seen", 1)
+                compact_lines.append(
+                    f"Commodity {received} received  \u2014  {conf} confirmed (previously validated {times}x)"
                     + (f"  \u2014  Third country tariff: {duty}" if duty else "")
                 )
+                display_pairs.append({"received": received, "confirmed": conf, "duty": duty, "status": "confirmed"})
             reply = (
                 "Dear Team Member,\n\n"
+                "This email is 100% handled by AI, no team member involved. "
+                "If you find something that I did wrong, inform the IT team.\n\n"
                 "I checked your question and below I provide you with my findings.\n\n"
-                + "\n".join(bullets)
-                + "\n\n---\n"
-                f"Decision log: {' | '.join(decision_log)}\n\n"
+                + "\n".join(compact_lines)
+                + "\n\n"
+                "Note: Please always ask confirmation to the customer before using this commodity code.\n\n"
                 "Kind regards,\nDKM Customs \u2014 Commodity Validation Service"
             )
             return {
@@ -249,6 +254,7 @@ If no codes found: UNKNOWN"""}])
                 "resolution_type": "auto_resolved",
                 "from_cache":      True,
                 "decision_log":    " | ".join(decision_log),
+                "display_pairs":   json.dumps(display_pairs),
             }
         elif cached_hits:
             decision_log.append(f"Partial cache hit for: {list(cached_hits.keys())}. Continuing with TARIC lookup for remaining codes.")
