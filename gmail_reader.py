@@ -18,7 +18,7 @@ IMAP_HOST            = "imap.gmail.com"
 IMAP_PORT            = 993
 GMAIL_LABEL          = "DevCommodityCheckAI"
 GMAIL_LABEL_VERWERKT = "DevCommodityCheckAI/Verwerkt"
-SUBJECT_TAG          = "#commoditycheckAI_dev"
+SUBJECT_TAG          = "#Dev_commoditycheckAI"
 
 
 def _decode_str(value: str) -> str:
