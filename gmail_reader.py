@@ -16,8 +16,8 @@ from email.header import decode_header
 
 IMAP_HOST            = "imap.gmail.com"
 IMAP_PORT            = 993
-GMAIL_LABEL          = "DevCommodityCheckAI"
-GMAIL_LABEL_VERWERKT = "DevCommodityCheckAI/Verwerkt"
+GMAIL_LABEL          = "Dev_CommodityCheckAI"
+GMAIL_LABEL_VERWERKT = "Dev_CommodityCheckAI/Verwerkt"
 SUBJECT_TAG          = "#Dev_commoditycheckAI"
 
 
