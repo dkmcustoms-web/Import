@@ -2,8 +2,8 @@
 gmail_reader.py
 Polls dkmcustoms@gmail.com via IMAP voor commodity code vragen.
 Gebruikt de permanente Message-ID header als unieke identifier.
-- Pikt emails op met label 'CommodityCheckAI' (ongelezen)
-- Voegt sublabel 'CommodityCheckAI/Verwerkt' toe na verwerking
+- Pikt emails op met label 'DevCommodityCheckAI' (ongelezen)
+- Voegt sublabel 'DevCommodityCheckAI/Verwerkt' toe na verwerking
 - Markeert als gelezen — mail blijft gewoon staan in Gmail
 """
 
