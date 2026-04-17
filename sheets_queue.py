@@ -35,9 +35,9 @@ LEARNED_COLUMNS = ["proposed_code", "confirmed_code", "confirmed_by", "confirmed
 
 class SheetsQueue:
     def __init__(self):
-        creds_json = os.environ.get("GMAIL_SERVICE_ACCOUNT_JSON", "")
+        creds_json = st.secrets.get("GMAIL_SERVICE_ACCOUNT_JSON")
         if not creds_json:
-            raise EnvironmentError("GMAIL_SERVICE_ACCOUNT_JSON not set.")
+            raise EnvironmentError("GMAIL_SERVICE_ACCOUNT_JSON not set")
         creds = Credentials.from_service_account_info(json.loads(creds_json), scopes=SCOPES)
         gc = gspread.authorize(creds)
         sh = gc.open_by_key(SHEET_ID)
