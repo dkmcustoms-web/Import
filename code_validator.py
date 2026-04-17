@@ -16,6 +16,10 @@ import json
 import anthropic
 import pandas as pd
 
+SPECIFIC_ENDINGS = {"05","10","15","20","22","25","27","30","33","40","43",
+                    "45","48","50","55","58","60","70","77","80","85"}
+SLUITPOST_ENDINGS = {"90","99","00","19","91","98","89"}
+
 CLAUDE_MODEL = "claude-sonnet-4-5"
 
 
@@ -45,10 +49,6 @@ def _search_code(code: str) -> dict:
     db_codes = df[code_col].fillna("").str.replace(r"\D", "", regex=True)
 
     desc_col  = "short_description" if "short_description" in df.columns else None
-
-    SPECIFIC_ENDINGS = {"05","10","15","20","22","25","27","30","33","40","43",
-                         "45","48","50","55","58","60","70","77","80","85"}
-    SLUITPOST_ENDINGS = {"90","99","00","19","91","98","89"}
 
     # Step 1: exact match
     exact_hits = df[db_codes == code_clean]
