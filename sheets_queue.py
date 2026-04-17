@@ -9,7 +9,9 @@ from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
 
-SHEET_ID       = os.environ.get("COMMODITY_SHEET_ID", "")
+import streamlit as st
+
+SHEET_ID = st.secrets.get("COMMODITY_SHEET_ID", "")
 WORKSHEET_NAME = "Queue"
 MANUAL_SHEET   = "ManualCodes"
 LEARNED_SHEET  = "LearnedCodes"
