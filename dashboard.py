@@ -1,5 +1,6 @@
-# v2.1 - force reload
+# v2.2 - auto-poll Gmail every 10 min
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 import time
 import os
 import re as _re
@@ -76,6 +77,89 @@ reader = get_reader()
 @st.cache_data(ttl=30)
 def load_items(): return queue.get_all_items()
 
+# ── Gmail check functie (gebruikt door manuele knop ÉN auto-poll) ────────────
+def run_gmail_check(show_ui=True):
+    """Fetch nieuwe mails, valideer, en voeg toe aan queue.
+    Returns: aantal verwerkte mails (excl. duplicates)."""
+    try:
+        new_messages = reader.fetch_new_messages()
+        if not new_messages:
+            if show_ui:
+                st.info("No new emails found with tag `#commoditycheckAI`.")
+            return 0
+
+        # Laad learned codes als lookup dict
+        try:
+            learned_dict = queue.get_learned_lookup()
+            if learned_dict:
+                print(f"[GmailCheck] Loaded {len(learned_dict)} learned code entries for cache lookup")
+        except Exception:
+            learned_dict = {}
+
+        progress = st.progress(0, text="Validating…") if show_ui else None
+        added = 0
+        for i, msg in enumerate(new_messages):
+            if progress:
+                progress.progress((i+1)/len(new_messages), text=f"Processing: {msg['subject'][:50]}")
+            if queue.msg_id_exists(msg["msg_id"]):
+                print(f"[GmailCheck] Skip duplicate: {msg['msg_id'][:50]}")
+                continue
+            try:
+                result = validate(msg["body"], msg["subject"], learned_codes=learned_dict)
+            except Exception as e:
+                result = {"commodity_code":"ERROR","confirmed_code":"","code_found":"false",
+                          "ai_verdict":f"Validatie mislukt: {e}",
+                          "suggested_reply":"Automatic validation failed. A specialist will follow up.",
+                          "resolution_type":"error"}
+            status = "flagged" if result["code_found"] == "false" else "pending"
+            # Check auto-approve voor cache hits
+            auto_sent = False
+            if result.get("from_cache") and learned_dict:
+                primary = result.get("commodity_code","")
+                learned_entry = learned_dict.get(primary, {})
+                if str(learned_entry.get("auto_approve","no")).strip().lower() == "yes":
+                    # Auto-send zonder menselijke review — voeg AI disclaimer toe
+                    base_reply = result.get("suggested_reply","")
+                    ai_disclaimer = (
+                        "This email is 100% handled by AI, no team member involved. "
+                        "If you find something that I did wrong, inform the IT team.\n\n"
+                    )
+                    reply_text = base_reply.replace(
+                        "I checked your question",
+                        ai_disclaimer + "I checked your question",
+                        1
+                    )
+                    ok = sender.send_reply(
+                        to=msg["sender_email"],
+                        subject=f"Re: {msg['subject']}",
+                        body=reply_text,
+                    )
+                    if ok:
+                        status = "sent"
+                        result["resolution_type"] = "auto_resolved"
+                        queue.add_item({**msg, **result, "status": "sent"})
+                        conf = learned_entry.get("confirmed_code", primary)
+                        queue.learn_code(proposed_code=primary, confirmed_code=conf,
+                                         subject=msg["subject"])
+                        auto_sent = True
+                        print(f"[GmailCheck] Auto-approved and sent for {primary}")
+
+            if not auto_sent:
+                queue.add_item({**msg, **result, "status": status})
+            added += 1
+
+        if progress:
+            progress.empty()
+
+        if added == 0 and show_ui:
+            st.info("Emails already processed.")
+        return added
+    except Exception as e:
+        if show_ui:
+            st.error(f"Error: {e}")
+        print(f"[GmailCheck] Error: {e}")
+        return 0
+
 items_all = load_items()
 n_queue  = len([i for i in items_all if i.get("status") in ("pending","flagged")])
 n_ignored = len([i for i in items_all if i.get("status") == "ignored"])
@@ -103,7 +187,12 @@ with st.sidebar:
     st.markdown("---")
     if st.button("🔄 Refresh", use_container_width=True):
         st.cache_data.clear(); st.rerun()
-    auto_refresh = st.toggle("Auto-refresh (300s)", value=False)
+    auto_poll = st.toggle(
+        "Auto-poll Gmail (10 min)",
+        value=True,
+        key="auto_poll_gmail",
+        help="Checks Gmail automatically every 10 minutes while dashboard is open.",
+    )
     st.markdown("---")
     if st.button("⚙️ Confirmations", use_container_width=True):
         st.query_params["page"] = "confirmations"
@@ -195,6 +284,30 @@ if _qpage == "confirmations":
         st.caption("Changes are saved immediately to Google Sheets.")
     st.stop()
 
+# ── Auto-poll trigger (alleen op hoofdpagina) ────────────────────────────────
+# st_autorefresh plant elke 10 min een rerun. We pollen alleen wanneer de
+# teller daadwerkelijk is opgehoogd — niet bij manuele reruns (knoppen etc.).
+if auto_poll:
+    _tick = st_autorefresh(interval=600_000, key="gmail_poller")
+    if "_last_poll_tick" not in st.session_state:
+        # Eerste load: init zonder te pollen, zodat de gebruiker niet meteen
+        # een Gmail-call krijgt bij het openen van het dashboard.
+        st.session_state["_last_poll_tick"] = _tick
+        _should_auto_poll = False
+    else:
+        _should_auto_poll = _tick > st.session_state["_last_poll_tick"]
+        if _should_auto_poll:
+            st.session_state["_last_poll_tick"] = _tick
+else:
+    _should_auto_poll = False
+
+if _should_auto_poll:
+    _added = run_gmail_check(show_ui=False)
+    if _added > 0:
+        st.cache_data.clear()
+        st.toast(f"📬 Auto-poll: {_added} new email(s) processed")
+        st.rerun()
+
 # ── Poll sectie ────────────────────────────────────────────────────────────────
 c1, c2 = st.columns([3,1])
 with c1:
@@ -206,78 +319,10 @@ st.markdown("---")
 
 if check_btn:
     with st.spinner("Checking Gmail…"):
-        try:
-            new_messages = reader.fetch_new_messages()
-            if not new_messages:
-                st.info("No new emails found with tag `#commoditycheckAI`.")
-            else:
-                # Laad learned codes als lookup dict {proposed_or_confirmed_code: info}
-                try:
-                    learned_dict = queue.get_learned_lookup()
-                    if learned_dict:
-                        print(f"[Dashboard] Loaded {len(learned_dict)} learned code entries for cache lookup")
-                except Exception:
-                    learned_dict = {}
-
-                progress = st.progress(0, text="Validating…")
-                added = 0
-                for i, msg in enumerate(new_messages):
-                    progress.progress((i+1)/len(new_messages), text=f"Processing: {msg['subject'][:50]}")
-                    if queue.msg_id_exists(msg["msg_id"]):
-                        print(f"[Dashboard] Skip duplicate: {msg['msg_id'][:50]}")
-                        continue
-                    try:
-                        result = validate(msg["body"], msg["subject"], learned_codes=learned_dict)
-                    except Exception as e:
-                        result = {"commodity_code":"ERROR","confirmed_code":"","code_found":"false",
-                                  "ai_verdict":f"Validatie mislukt: {e}",
-                                  "suggested_reply":"Automatic validation failed. A specialist will follow up.",
-                                  "resolution_type":"error"}
-                    status = "flagged" if result["code_found"] == "false" else "pending"
-                    # Check auto-approve voor cache hits
-                    auto_sent = False
-                    if result.get("from_cache") and learned_dict:
-                        primary = result.get("commodity_code","")
-                        learned_entry = learned_dict.get(primary, {})
-                        if str(learned_entry.get("auto_approve","no")).strip().lower() == "yes":
-                            # Auto-send zonder menselijke review — voeg AI disclaimer toe
-                            base_reply = result.get("suggested_reply","")
-                            ai_disclaimer = (
-                                "This email is 100% handled by AI, no team member involved. "
-                                "If you find something that I did wrong, inform the IT team.\n\n"
-                            )
-                            reply_text = base_reply.replace(
-                                "I checked your question",
-                                ai_disclaimer + "I checked your question",
-                                1
-                            )
-                            ok = sender.send_reply(
-                                to=msg["sender_email"],
-                                subject=f"Re: {msg['subject']}",
-                                body=reply_text,
-                            )
-                            if ok:
-                                status = "sent"
-                                result["resolution_type"] = "auto_resolved"
-                                queue.add_item({**msg, **result, "status": "sent"})
-                                # Update learned code counter
-                                conf = learned_entry.get("confirmed_code", primary)
-                                queue.learn_code(proposed_code=primary, confirmed_code=conf,
-                                                 subject=msg["subject"])
-                                auto_sent = True
-                                print(f"[Dashboard] Auto-approved and sent for {primary}")
-
-                    if not auto_sent:
-                        queue.add_item({**msg, **result, "status": status})
-                    added += 1
-                progress.empty()
-                if added > 0:
-                    st.success(f"✅ {added} new email(s) processed!")
-                    st.cache_data.clear(); time.sleep(1); st.rerun()
-                else:
-                    st.info("Emails already processed.")
-        except Exception as e:
-            st.error(f"Error: {e}")
+        added = run_gmail_check(show_ui=True)
+        if added > 0:
+            st.success(f"✅ {added} new email(s) processed!")
+            st.cache_data.clear(); time.sleep(1); st.rerun()
 
 # ── Render functie ────────────────────────────────────────────────────────────
 def render_items(items, allow_actions=True, show_auto_approve=False):
@@ -546,6 +591,3 @@ with tab_sent:
 
 with tab_all:
     render_items(items_all, allow_actions=False)
-
-if auto_refresh:
-    time.sleep(300); st.rerun()
