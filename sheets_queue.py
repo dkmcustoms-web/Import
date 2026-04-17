@@ -12,6 +12,7 @@ from google.oauth2.service_account import Credentials
 import streamlit as st
 
 SHEET_ID = st.secrets.get("COMMODITY_SHEET_ID", "")
+print(f"[DEBUG] SHEET_ID geladen: '{SHEET_ID}'")
 WORKSHEET_NAME = "Queue"
 MANUAL_SHEET   = "ManualCodes"
 LEARNED_SHEET  = "LearnedCodes"
