@@ -34,13 +34,19 @@ cd Commodity_Checker
 pip install -r requirements.txt
 ```
 
-### 2. Add your commodities CSV
+### 2. TARIC commodity CSV
 
-Place your CSV file at the project root as `commodities.csv`.
-Required columns (names are flexible — the app auto-detects):
-- A column with the commodity/GN/HS code (e.g. `code`, `gn_code`, `hs_code`)
-- A description column (e.g. `description`, `omschrijving`)
-- Optional: `duty_rate`, `vat`, `unit`
+The app uses `commodity10digits_clean.csv` at the project root as its single source of truth.
+
+- **17,050 codes**, all 10 digits
+- **Encoding:** UTF-8, separator `;`
+- **Required columns:**
+  - `gn_code` — 10-digit commodity code
+  - `short_description` — short goods description
+  - `full_description` — full TARIC description
+  - `third_country_duty` — third-country tariff rate
+
+The path can be overridden via the `COMMODITIES_CSV_PATH` secret if you want to point to a different location.
 
 ### 3. Google Service Account
 
@@ -66,7 +72,7 @@ Copy the Sheet ID from the URL into your secrets.
 
 ### 5. Secrets
 
-Copy `.streamlit/secrets.toml.example` → `.streamlit/secrets.toml` and fill in all values.
+Create `.streamlit/secrets.toml` with all required values (see Project Knowledge Base section 2 for the full list).
 
 For Streamlit Cloud: paste the contents under **Settings → Secrets**.
 
