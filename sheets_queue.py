@@ -197,18 +197,27 @@ class SheetsQueue:
         except Exception as e:
             print(f"[SheetsQueue] learn_code error: {e}")
 
-    def set_auto_approve(self, proposed_code: str, value: bool):
-        """Set auto_approve flag for a learned code."""
+    def set_auto_approve(self, proposed_code: str, value):
+        """Set auto_approve flag for a learned code.
+        Accepts bool (True='yes', False='no') or str ('yes' / 'no' / 'never').
+        """
         if not self.ws_learned:
             return
         try:
+            if isinstance(value, bool):
+                val_str = "yes" if value else "no"
+            else:
+                val_str = str(value).strip().lower()
+                if val_str not in ("yes", "no", "never"):
+                    val_str = "no"
+
             col1 = self.ws_learned.col_values(1)
             normalized = [str(c).strip() for c in col1]
             gn_clean = str(proposed_code).strip()
             if gn_clean in normalized:
                 row_num   = normalized.index(gn_clean) + 1
                 auto_col  = LEARNED_COLUMNS.index("auto_approve") + 1
-                self.ws_learned.update_cell(row_num, auto_col, "yes" if value else "no")
+                self.ws_learned.update_cell(row_num, auto_col, val_str)
         except Exception as e:
             print(f"[SheetsQueue] set_auto_approve error: {e}")
 

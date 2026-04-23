@@ -232,10 +232,13 @@ if _qpage == "confirmations":
             prop = str(r.get("proposed_code") or r.get("gn_code","")).strip()
             conf = str(r.get("confirmed_code") or r.get("gn_code","")).strip()
             if prop:
+                _raw_state = str(r.get("auto_approve","no")).strip().lower()
+                if _raw_state not in ("yes", "no", "never"):
+                    _raw_state = "no"
                 _all_pairs[prop] = {"confirmed":conf,"duty":str(r.get("duty_rate","")).strip(),
                     "times":str(r.get("times_seen",1)),"source":str(r.get("source_subject",""))[:60],
                     "description":"",
-                    "auto_approve":str(r.get("auto_approve","no")).strip().lower()=="yes","in_learned":True}
+                    "auto_approve":_raw_state,"in_learned":True}
     except Exception as _e:
         st.warning(f"Cannot load LearnedCodes: {_e}")
     for _item in [i for i in load_items() if i.get("status")=="sent"]:
@@ -246,49 +249,69 @@ if _qpage == "confirmations":
                     _all_pairs[_r]={"confirmed":_c,"duty":str(_p.get("duty","")).strip(),
                         "times":"1","source":str(_item.get("subject",""))[:60],
                         "description":str(_p.get("description","")).strip(),
-                        "auto_approve":False,"in_learned":False}
+                        "auto_approve":"no","in_learned":False}
         except Exception:
             pass
     if not _all_pairs:
         st.info("No validated codes yet. Approve & Send some replies first.")
     else:
-        _approved = {k: v for k, v in _all_pairs.items() if v["auto_approve"]}
-        _pending  = {k: v for k, v in _all_pairs.items() if not v["auto_approve"]}
-        st.markdown(f"**{len(_all_pairs)} validated pair(s)** — 🟢 {len(_approved)} ON · ⭕ {len(_pending)} OFF")
+        _approved = {k: v for k, v in _all_pairs.items() if v["auto_approve"] == "yes"}
+        _pending  = {k: v for k, v in _all_pairs.items() if v["auto_approve"] == "no"}
+        _never    = {k: v for k, v in _all_pairs.items() if v["auto_approve"] == "never"}
+        st.markdown(f"**{len(_all_pairs)} validated pair(s)** — 🟢 {len(_approved)} ON · ⭕ {len(_pending)} OFF · 🚫 {len(_never)} NEVER")
+
+        _STATE_LABELS = {"yes": "🟢 Auto", "no": "⭕ Off", "never": "🚫 Never"}
+        _LABEL_TO_STATE = {v: k for k, v in _STATE_LABELS.items()}
 
         def _render_conf_table(pairs_dict, tab_key):
             if not pairs_dict:
                 st.info("No entries in this category.")
                 return
-            _hc=st.columns([1.3,1.3,0.7,0.5,2,2,1.2])
-            for _col,_h in zip(_hc,["Received","Confirmed","Duty","Times","Description","Source","Auto-approve"]):
+            _hc=st.columns([1.3,1.3,1.8,0.7,0.5,1.8,1.4])
+            for _col,_h in zip(_hc,["Received","Confirmed","Auto-approve","Duty","Times","Description","Source"]):
                 _col.markdown(f"<span style='font-size:0.72rem;color:#888;font-family:monospace;text-transform:uppercase;'>{_h}</span>",unsafe_allow_html=True)
             st.markdown("<hr style='margin:4px 0;border-color:#2d3748;'>",unsafe_allow_html=True)
             for _prop,_info in sorted(pairs_dict.items()):
                 _conf=_info["confirmed"]; _duty=_info["duty"]; _times=_info["times"]
-                _src=_info["source"]; _av=_info["auto_approve"]; _il=_info["in_learned"]
+                _src=_info["source"]; _state=_info["auto_approve"]; _il=_info["in_learned"]
                 _desc=_info.get("description","")
                 _cc="#2ecc71" if _prop!=_conf else "#3cceff"
-                _rc=st.columns([1.3,1.3,0.7,0.5,2,2,1.2])
+                _rc=st.columns([1.3,1.3,1.8,0.7,0.5,1.8,1.4])
                 _rc[0].markdown(f"<span style='font-family:monospace;color:#f0a500;font-size:0.9rem;'>{_prop}</span>",unsafe_allow_html=True)
                 _rc[1].markdown(f"<span style='font-family:monospace;color:{_cc};font-weight:700;font-size:0.9rem;'>✅ {_conf}</span>",unsafe_allow_html=True)
-                _rc[2].markdown(f"<span style='color:#aaa;font-size:0.85rem;'>{_duty}</span>",unsafe_allow_html=True)
-                _rc[3].markdown(f"<span style='color:#f0a500;font-weight:600;'>{_times}x</span>",unsafe_allow_html=True)
-                _rc[4].markdown(f"<span style='color:#ccc;font-size:0.8rem;font-style:italic;'>{_desc}</span>",unsafe_allow_html=True)
-                _rc[5].markdown(f"<span style='color:#555;font-size:0.8rem;'>{_src}</span>",unsafe_allow_html=True)
-                _nv=_rc[6].toggle("",value=_av,key=f"ap_{tab_key}_{_prop}",label_visibility="collapsed",help=f"{_prop}→{_conf}")
-                if _nv != _av:
+                with _rc[2]:
+                    _current_label = _STATE_LABELS.get(_state, "⭕ Off")
+                    _new_label = st.segmented_control(
+                        "auto-approve",
+                        options=list(_STATE_LABELS.values()),
+                        default=_current_label,
+                        key=f"ap_{tab_key}_{_prop}",
+                        label_visibility="collapsed",
+                    )
+                _new_state = _LABEL_TO_STATE.get(_new_label, _state) if _new_label else _state
+                _rc[3].markdown(f"<span style='color:#aaa;font-size:0.85rem;'>{_duty}</span>",unsafe_allow_html=True)
+                _rc[4].markdown(f"<span style='color:#f0a500;font-weight:600;'>{_times}x</span>",unsafe_allow_html=True)
+                _rc[5].markdown(f"<span style='color:#ccc;font-size:0.8rem;font-style:italic;'>{_desc}</span>",unsafe_allow_html=True)
+                _rc[6].markdown(f"<span style='color:#555;font-size:0.8rem;'>{_src}</span>",unsafe_allow_html=True)
+                if _new_state != _state:
                     if not _il:
                         queue.learn_code(proposed_code=_prop,confirmed_code=_conf,subject=_src,duty_rate=_duty)
-                    queue.set_auto_approve(_prop,_nv)
-                    st.toast(f"{'✅ Enabled' if _nv else '⭕ Disabled'}: {_prop} → {_conf}")
+                    queue.set_auto_approve(_prop,_new_state)
+                    _msg_map = {"yes":"✅ Auto-approve enabled","no":"⭕ Set to manual review","never":"🚫 Never auto-approve"}
+                    st.toast(f"{_msg_map.get(_new_state,'Updated')}: {_prop} → {_conf}")
                     st.cache_data.clear()
 
-        _tab_off, _tab_on = st.tabs([f"⭕ Auto-approve OFF ({len(_pending)})", f"🟢 Auto-approve ON ({len(_approved)})"])
+        _tab_off, _tab_on, _tab_never = st.tabs([
+            f"⭕ Auto-approve OFF ({len(_pending)})",
+            f"🟢 Auto-approve ON ({len(_approved)})",
+            f"🚫 Never ({len(_never)})",
+        ])
         with _tab_off:
             _render_conf_table(_pending, "off")
         with _tab_on:
             _render_conf_table(_approved, "on")
+        with _tab_never:
+            _render_conf_table(_never, "never")
         st.caption("Changes are saved immediately to Google Sheets.")
     st.stop()
 
