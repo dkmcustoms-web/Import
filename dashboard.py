@@ -203,19 +203,27 @@ with st.sidebar:
     st.session_state["learn_codes"] = learn_setting
     st.markdown("<span style='color:#3cceff;font-size:0.75rem;font-family:monospace'>Commodity Checker v1.0</span>", unsafe_allow_html=True)
 
-# ── Header ────────────────────────────────────────────────────────────────────
-st.markdown("""<h1 style="font-family:'DM Mono',monospace;font-size:1.6rem;font-weight:500;color:#3cceff;margin-bottom:1.5rem;">DKM <span style="color:#f35e40">·</span> Commodity Checker</h1>""", unsafe_allow_html=True)
-
 # ── Page routing ──────────────────────────────────────────────────────────────
 import json as _cjson
 _qpage = st.query_params.get("page", "main")
 
 if _qpage == "confirmations":
-    st.markdown("## ⚙️ Confirmations — Auto-approve")
-    if st.button("← Back to Dashboard"):
-        st.query_params.clear()
-        st.rerun()
+    # Compacte header op één rij: titel · subtitel · back-knop
+    _hc1, _hc2, _hc3 = st.columns([2.2, 3, 1.2])
+    with _hc1:
+        st.markdown("""<h1 style="font-family:'DM Mono',monospace;font-size:1.3rem;font-weight:500;color:#3cceff;margin:0;padding-top:0.55rem;white-space:nowrap;">DKM <span style="color:#f35e40">·</span> Commodity Checker</h1>""", unsafe_allow_html=True)
+    with _hc2:
+        st.markdown("""<h2 style="font-family:'DM Sans',sans-serif;font-size:1.15rem;font-weight:500;color:#e0e0e0;margin:0;padding-top:0.6rem;white-space:nowrap;">⚙️ Confirmations <span style="color:#888;font-size:0.9rem;">— Auto-approve</span></h2>""", unsafe_allow_html=True)
+    with _hc3:
+        if st.button("← Back to Dashboard", use_container_width=True):
+            st.query_params.clear()
+            st.rerun()
     st.markdown("---")
+else:
+    # ── Main header ───────────────────────────────────────────────────────────
+    st.markdown("""<h1 style="font-family:'DM Mono',monospace;font-size:1.6rem;font-weight:500;color:#3cceff;margin-bottom:1.5rem;">DKM <span style="color:#f35e40">·</span> Commodity Checker</h1>""", unsafe_allow_html=True)
+
+if _qpage == "confirmations":
     st.markdown("<span style='color:#888'>When **ON**, future emails with this code are automatically replied to without manual review.</span>", unsafe_allow_html=True)
     st.markdown("")
     _all_pairs = {}
