@@ -535,72 +535,57 @@ def render_items(items, allow_actions=True, show_auto_approve=False):
                                 st.markdown(f"<span style='font-family:monospace;font-size:0.8rem;color:{color};'>→ {step.strip()}</span>", unsafe_allow_html=True)
 
                 edited_reply = st.text_area("Reply", value=reply_body, height=180, key=f"reply_{row_id}")
-                # ── Confirmatiescherm ──────────────────────────────────────
-                confirm_key = f"confirm_{row_id}"
-                if st.session_state.get(confirm_key):
-                    st.warning("⚠️ Are you sure you want to send this reply?")
-                    cc1, cc2 = st.columns([1,1])
-                    with cc1:
-                        if st.button("✅ Yes, send it", key=f"confirm_yes_{row_id}", type="primary"):
-                            with st.spinner("Sending…"):
-                                ok = sender.send_reply(to=sender_mail, subject=f"Re: {subject}", body=edited_reply)
-                                if ok:
-                                    res_type = "auto_resolved" if ai_found=="true" else ("manual" if ai_found=="false" else "existed")
-                                    queue.update_status(row_id, "sent", reply_sent=edited_reply, resolution_type=res_type)
-                                    # Leer de code als setting aan staat
-                                    learn = st.session_state.get("learn_codes", True)
-                                    if learn and res_type in ("auto_resolved","existed"):
-                                        # Use display_pairs to save each pair correctly
-                                        import json as _ljson
-                                        raw_dp = item.get("display_pairs","")
-                                        dp = []
-                                        try:
-                                            dp = _ljson.loads(str(raw_dp)) if raw_dp else []
-                                        except Exception:
-                                            pass
-                                        if dp:
-                                            for pair in dp:
-                                                p_rec  = str(pair.get("received","")).strip()
-                                                p_conf = str(pair.get("confirmed","")).strip()
-                                                p_duty = str(pair.get("duty","")).strip()
-                                                if p_rec and p_conf:
-                                                    queue.learn_code(
-                                                        proposed_code=p_rec,
-                                                        confirmed_code=p_conf,
-                                                        subject=subject,
-                                                        duty_rate=p_duty,
-                                                    )
-                                            st.success(f"✅ Sent! {len(dp)} code(s) saved to LearnedCodes.")
-                                        else:
-                                            conf = str(confirmed_code).strip() if confirmed_code else ""
-                                            prop = str(code_asked_str).strip() if code_asked_str else ""
-                                            if prop and conf:
-                                                queue.learn_code(proposed_code=prop, confirmed_code=conf, subject=subject)
-                                            st.success("✅ Sent!")
+                c1, c2, c3 = st.columns([2, 1, 1])
+                with c1:
+                    if st.button("📤 Approve & Send", key=f"send_{row_id}", type="primary"):
+                        with st.spinner("Sending…"):
+                            ok = sender.send_reply(to=sender_mail, subject=f"Re: {subject}", body=edited_reply)
+                            if ok:
+                                res_type = "auto_resolved" if ai_found=="true" else ("manual" if ai_found=="false" else "existed")
+                                queue.update_status(row_id, "sent", reply_sent=edited_reply, resolution_type=res_type)
+                                # Leer de code als setting aan staat
+                                learn = st.session_state.get("learn_codes", True)
+                                if learn and res_type in ("auto_resolved","existed"):
+                                    # Use display_pairs to save each pair correctly
+                                    import json as _ljson
+                                    raw_dp = item.get("display_pairs","")
+                                    dp = []
+                                    try:
+                                        dp = _ljson.loads(str(raw_dp)) if raw_dp else []
+                                    except Exception:
+                                        pass
+                                    if dp:
+                                        for pair in dp:
+                                            p_rec  = str(pair.get("received","")).strip()
+                                            p_conf = str(pair.get("confirmed","")).strip()
+                                            p_duty = str(pair.get("duty","")).strip()
+                                            if p_rec and p_conf:
+                                                queue.learn_code(
+                                                    proposed_code=p_rec,
+                                                    confirmed_code=p_conf,
+                                                    subject=subject,
+                                                    duty_rate=p_duty,
+                                                )
+                                        st.success(f"✅ Sent! {len(dp)} code(s) saved to LearnedCodes.")
                                     else:
+                                        conf = str(confirmed_code).strip() if confirmed_code else ""
+                                        prop = str(code_asked_str).strip() if code_asked_str else ""
+                                        if prop and conf:
+                                            queue.learn_code(proposed_code=prop, confirmed_code=conf, subject=subject)
                                         st.success("✅ Sent!")
-                                    st.session_state.pop(confirm_key, None)
-                                    st.cache_data.clear(); time.sleep(1); st.rerun()
                                 else:
-                                    st.error("❌ Failed to send.")
-                    with cc2:
-                        if st.button("✖ Cancel", key=f"confirm_no_{row_id}"):
-                            st.session_state.pop(confirm_key, None)
-                            st.rerun()
-                else:
-                    c1, c2, c3 = st.columns([2, 1, 1])
-                    with c1:
-                        if st.button("📤 Approve & Send", key=f"send_{row_id}", type="primary"):
-                            st.session_state[confirm_key] = True
-                            st.rerun()
-                    with c2:
-                        if st.button("🚩 Flag", key=f"flag_{row_id}"):
-                            queue.update_status(row_id, "flagged")
-                            st.cache_data.clear(); time.sleep(0.5); st.rerun()
-                    with c3:
-                        if st.button("🙈 Ignore", key=f"ignore_{row_id}"):
-                            queue.update_status(row_id, "ignored")
-                            st.cache_data.clear(); time.sleep(0.5); st.rerun()
+                                    st.success("✅ Sent!")
+                                st.cache_data.clear(); time.sleep(1); st.rerun()
+                            else:
+                                st.error("❌ Failed to send.")
+                with c2:
+                    if st.button("🚩 Flag", key=f"flag_{row_id}"):
+                        queue.update_status(row_id, "flagged")
+                        st.cache_data.clear(); time.sleep(0.5); st.rerun()
+                with c3:
+                    if st.button("🙈 Ignore", key=f"ignore_{row_id}"):
+                        queue.update_status(row_id, "ignored")
+                        st.cache_data.clear(); time.sleep(0.5); st.rerun()
         st.markdown("")
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
