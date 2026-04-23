@@ -24,6 +24,7 @@ SLUITPOST_ENDINGS = {"90","99","00","19","91","98","89"}
 CLAUDE_MODEL = "claude-sonnet-4-5"
 
 
+@lru_cache(maxsize=1)
 def _load_commodities() -> pd.DataFrame:
     csv_path = os.environ.get("COMMODITIES_CSV_PATH", "commodity10digits_clean.csv")
     print(f"[Validator] Loading CSV: {csv_path}")
@@ -32,6 +33,24 @@ def _load_commodities() -> pd.DataFrame:
     df = df.fillna("")
     print(f"[Validator] CSV loaded: {len(df)} rows, columns: {list(df.columns)}")
     return df
+
+
+def _get_description(code: str) -> str:
+    """Zoek short_description op voor een 10-cijferige code (gebruikt bij cache hits)."""
+    try:
+        df = _load_commodities()
+        if "short_description" not in df.columns:
+            return ""
+        code_clean = re.sub(r"\D", "", str(code)).strip()
+        if not code_clean:
+            return ""
+        db_codes = df["gn_code"].fillna("").str.replace(r"\D", "", regex=True)
+        hits = df[db_codes == code_clean]
+        if not hits.empty:
+            return str(hits.iloc[0]["short_description"]).strip()
+    except Exception as e:
+        print(f"[Validator] _get_description error: {e}")
+    return ""
 
 
 def _search_code(code: str) -> dict:
@@ -233,12 +252,14 @@ If no codes found: UNKNOWN"""}])
                 conf  = info.get("confirmed_code", suggested)
                 duty  = info.get("duty_rate", "")
                 times = info.get("times_seen", 1)
+                desc  = _get_description(conf)
                 last2 = str(conf)[-2:] if len(str(conf)) >= 2 else ""
                 if last2 in SPECIFIC_ENDINGS:
                     has_specific = True
                     decision_log.append(f"WARNING: cached code {conf} ends on specific subheading \'{last2}\'. Sluitpost may be more appropriate.")
                 compact_lines.append(
                     f"Commodity {received} received  \u2014  {conf} confirmed (previously validated {times}x)"
+                    + (f"  \u2014  {desc}" if desc else "")
                     + (f"  \u2014  Third country tariff: {duty}" if duty else "")
                 )
                 if last2 in SPECIFIC_ENDINGS:
@@ -247,7 +268,7 @@ If no codes found: UNKNOWN"""}])
                         f"Unless the goods specifically match this description, the residual \'Other\' code is more likely correct. "
                         f"Please verify with the customer before sending."
                     )
-                display_pairs.append({"received": received, "confirmed": conf, "duty": duty, "description": "", "status": "confirmed"})
+                display_pairs.append({"received": received, "confirmed": conf, "duty": duty, "description": desc, "status": "confirmed"})
             reply = (
                 "Dear Team Member,\n\n"
                 "I checked your question and below I provide you with my findings.\n\n"
@@ -474,6 +495,7 @@ If NO or UNCERTAIN: reply with just "NO"
     compact_lines = []
     for received, result in all_results.items():
         suggested_input = result.get("suggested_input", received)
+        desc = result.get("description", "")
         if result["exact"]:
             duty      = result.get("duty_rate","")
             warning   = result.get("warning","")
@@ -481,6 +503,7 @@ If NO or UNCERTAIN: reply with just "NO"
             if warning and sluitpost:
                 compact_lines.append(
                     f"Commodity {received} received  \u2014  {suggested_input} confirmed (specific subheading — verify)"
+                    + (f"  \u2014  {desc}" if desc else "")
                     + (f"  \u2014  Third country tariff: {duty}" if duty else "")
                 )
                 compact_lines.append(f"  \u26a0 {warning}")
@@ -492,6 +515,7 @@ If NO or UNCERTAIN: reply with just "NO"
             else:
                 compact_lines.append(
                     f"Commodity {received} received  \u2014  {suggested_input} confirmed"
+                    + (f"  \u2014  {desc}" if desc else "")
                     + (f"  \u2014  Third country tariff: {duty}" if duty else "")
                 )
                 analysis_lines.append(
@@ -505,6 +529,7 @@ If NO or UNCERTAIN: reply with just "NO"
             if warning and sugg_in != best:
                 compact_lines.append(
                     f"Commodity {received} received  \u2014  {sugg_in} as suggested is INCORRECT  \u2014  {best} recommended instead"
+                    + (f"  \u2014  {desc}" if desc else "")
                     + (f"  \u2014  Third country tariff: {duty}" if duty else "")
                 )
                 compact_lines.append(f"  \u26a0 {warning}")
@@ -514,6 +539,7 @@ If NO or UNCERTAIN: reply with just "NO"
                     label = "suggested (specific code — residual \'Other\' recommended)"
                 compact_lines.append(
                     f"Commodity {received} received  \u2014  {best} {label}"
+                    + (f"  \u2014  {desc}" if desc else "")
                     + (f"  \u2014  Third country tariff: {duty}" if duty else "")
                 )
                 if warning:
