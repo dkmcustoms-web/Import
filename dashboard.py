@@ -276,11 +276,11 @@ if _qpage == "confirmations":
                     st.toast(f"{'✅ Enabled' if _nv else '⭕ Disabled'}: {_prop} → {_conf}")
                     st.cache_data.clear()
 
-        _tab_on, _tab_off = st.tabs([f"🟢 Auto-approve ON ({len(_approved)})", f"⭕ Auto-approve OFF ({len(_pending)})"])
-        with _tab_on:
-            _render_conf_table(_approved, "on")
+            _tab_off, _tab_on = st.tabs([f"⭕ Auto-approve OFF ({len(_pending)})", f"🟢 Auto-approve ON ({len(_approved)})"])
         with _tab_off:
             _render_conf_table(_pending, "off")
+        with _tab_on:
+            _render_conf_table(_approved, "on")
         st.caption("Changes are saved immediately to Google Sheets.")
     st.stop()
 
