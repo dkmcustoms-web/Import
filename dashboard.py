@@ -271,7 +271,15 @@ if _qpage == "confirmations":
             for _col,_h in zip(_hc,["Received","Confirmed","Auto-approve","Duty","Times","Description","Source"]):
                 _col.markdown(f"<span style='font-size:0.72rem;color:#888;font-family:monospace;text-transform:uppercase;'>{_h}</span>",unsafe_allow_html=True)
             st.markdown("<hr style='margin:4px 0;border-color:#2d3748;'>",unsafe_allow_html=True)
-            for _prop,_info in sorted(pairs_dict.items()):
+            def _sort_key(kv):
+                _prop, _info = kv
+                try:
+                    _times_n = int(str(_info.get("times", 0)).strip() or 0)
+                except ValueError:
+                    _times_n = 0
+                return (-_times_n, _prop)
+
+            for _prop,_info in sorted(pairs_dict.items(), key=_sort_key):
                 _conf=_info["confirmed"]; _duty=_info["duty"]; _times=_info["times"]
                 _src=_info["source"]; _state=_info["auto_approve"]; _il=_info["in_learned"]
                 _desc=_info.get("description","")
