@@ -84,7 +84,15 @@ else:
         for col,h in zip(hcols,["Received","Confirmed","Duty","Times","Source","Auto-approve"]):
             col.markdown(f"<span style='font-size:0.72rem;color:#888;font-family:monospace;text-transform:uppercase;'>{h}</span>",unsafe_allow_html=True)
         st.markdown("<hr style='margin:4px 0;border-color:#2d3748;'>",unsafe_allow_html=True)
-        for prop, info in sorted(pairs_dict.items()):
+        def _sort_key(kv):
+            prop, info = kv
+            try:
+                times_n = int(str(info.get("times", 0)).strip() or 0)
+            except ValueError:
+                times_n = 0
+            return (-times_n, prop)
+
+        for prop, info in sorted(pairs_dict.items(), key=_sort_key):
             conf=info["confirmed"]; duty=info["duty"]; times=info["times"]
             source=info["source"]; av=info["auto_approve"]; il=info["in_learned"]
             cc="#2ecc71" if prop!=conf else "#3cceff"
