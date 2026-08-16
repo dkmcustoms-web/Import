@@ -165,6 +165,12 @@ n_queue  = len([i for i in items_all if i.get("status") in ("pending","flagged")
 n_ignored = len([i for i in items_all if i.get("status") == "ignored"])
 n_sent   = len([i for i in items_all if i.get("status") == "sent"])
 n_total  = len(items_all)
+# Fully automatic sends: auto-approve path adds the item as "sent" directly and
+# never populates reply_sent (only the manual "Approve & Send" flow does), so an
+# empty reply_sent on a sent item is the marker for "no human involved".
+n_auto_sent = len([i for i in items_all
+                    if i.get("status") == "sent" and not str(i.get("reply_sent","")).strip()])
+auto_sent_pct = round(100 * n_auto_sent / n_sent) if n_sent else 0
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -182,6 +188,9 @@ with st.sidebar:
     </div>
     <div class="metric-card" style="--accent:#555">
         <div class="label">Ignored</div><div class="value">{n_ignored}</div>
+    </div>
+    <div class="metric-card" style="--accent:#a855f7">
+        <div class="label">Auto-sent (AI only)</div><div class="value">{n_auto_sent} <span style="font-size:0.9rem;color:#888;">({auto_sent_pct}%)</span></div>
     </div>
     """, unsafe_allow_html=True)
     st.markdown("---")
