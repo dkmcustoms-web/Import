@@ -594,7 +594,7 @@ def render_items(items, allow_actions=True, show_auto_approve=False):
                                     st.success("✅ Sent!")
                                 st.cache_data.clear(); time.sleep(1); st.rerun()
                             else:
-                                st.error("❌ Failed to send.")
+                                st.error(f"❌ Failed to send. {sender.last_error}")
                 with c2:
                     if st.button("🚩 Flag", key=f"flag_{row_id}"):
                         queue.update_status(row_id, "flagged")

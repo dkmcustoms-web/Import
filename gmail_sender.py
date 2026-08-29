@@ -17,12 +17,15 @@ class GmailSender:
         self.password = os.environ.get("SMTP_PASSWORD", "")
         self.from_    = os.environ.get("SMTP_FROM", "dkmcustoms@gmail.com")
         self.cc       = os.environ.get("COMMODITY_CC", "luc.dekerf@dkm-customs.com")
+        self.last_error = ""
 
     def send_reply(self, to: str, subject: str, body: str) -> bool:
         """
         Sends a plain-text reply email.
-        Returns True on success, False on failure.
+        Returns True on success, False on failure. On failure, self.last_error
+        holds the exception message for display/debugging.
         """
+        self.last_error = ""
         try:
             msg = MIMEMultipart()
             msg["From"]    = self.from_
@@ -46,5 +49,6 @@ class GmailSender:
             return True
 
         except Exception as e:
+            self.last_error = str(e)
             print(f"[GmailSender] SMTP error: {e}")
             return False
